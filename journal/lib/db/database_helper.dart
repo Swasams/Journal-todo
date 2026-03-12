@@ -1,89 +1,113 @@
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/entry.dart';
 import '../models/todo_item.dart';
 
 class DatabaseHelper {
-  static Database? _db;
+  static SharedPreferences? _prefs;
 
-  static Future<Database> get database async {
-    if (_db != null) return _db!;
-    _db = await _initDb();
-    return _db!;
+  static Future<SharedPreferences> get _store async {
+    _prefs ??= await SharedPreferences.getInstance();
+    return _prefs!;
   }
 
-  static Future<Database> _initDb() async {
-    final path = join(await getDatabasesPath(), 'journal.db');
-    return openDatabase(path, version: 2, onCreate: (db, version) async {
-      await db.execute('''
-        CREATE TABLE entries (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          title TEXT,
-          body TEXT,
-          date TEXT
-        )
-      ''');
-      await db.execute('''
-        CREATE TABLE todos (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          title TEXT,
-          done INTEGER
-        )
-      ''');
-    }, onUpgrade: (db, oldVersion, newVersion) async {
-      if (oldVersion < 2) {
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS todos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT,
-            done INTEGER
-          )
-        ''');
-      }
-    });
-  }
+  // ── Journal entries ──────────────────────────────────────────
 
-  // Journal entries
-  static Future<int> insertEntry(JournalEntry entry) async {
-    final db = await database;
-    return db.insert('entries', entry.toMap());
+  static Future<void> insertEntry(JournalEntry entry) async {
+    final prefs = await _store;
+    final entries = await getAllEntries();
+    entry.id = DateTime.now().millisecondsSinceEpoch;
+    entries.add(entry);
+    await prefs.setString('entries', jsonEncode(entries.map((e) => e.toMap()).toList()));
   }
 
   static Future<List<JournalEntry>> getAllEntries() async {
-    final db = await database;
-    final maps = await db.query('entries', orderBy: 'date DESC');
-    return maps.map((m) => JournalEntry.fromMap(m)).toList();
+    final prefs = await _store;
+    final raw = prefs.getString('entries');
+    if (raw == null) return [];
+    final list = jsonDecode(raw) as List;
+    return list.map((m) => JournalEntry.fromMap(Map<String, dynamic>.from(m))).toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
   }
 
-  static Future<int> updateEntry(JournalEntry entry) async {
-    final db = await database;
-    return db.update('entries', entry.toMap(), where: 'id = ?', whereArgs: [entry.id]);
+  static Future<void> updateEntry(JournalEntry entry) async {
+    final prefs = await _store;
+    final entries = await getAllEntries();
+    final idx = entries.indexWhere((e) => e.id == entry.id);
+    if (idx != -1) entries[idx] = entry;
+    await prefs.setString('entries', jsonEncode(entries.map((e) => e.toMap()).toList()));
   }
 
-  static Future<int> deleteEntry(int id) async {
-    final db = await database;
-    return db.delete('entries', where: 'id = ?', whereArgs: [id]);
+  static Future<void> deleteEntry(int id) async {
+    final prefs = await _store;
+    final entries = await getAllEntries();
+    entries.removeWhere((e) => e.id == id);
+    await prefs.setString('entries', jsonEncode(entries.map((e) => e.toMap()).toList()));
   }
 
-  // Todos
-  static Future<int> insertTodo(TodoItem todo) async {
-    final db = await database;
-    return db.insert('todos', todo.toMap());
+  // ── Todos ────────────────────────────────────────────────────
+
+  static Future<void> insertTodo(TodoItem todo) async {
+    final prefs = await _store;
+    final todos = await getAllTodos();
+    todo.id = DateTime.now().millisecondsSinceEpoch;
+    todos.add(todo);
+    await prefs.setString('todos', jsonEncode(todos.map((t) => t.toMap()).toList()));
   }
 
   static Future<List<TodoItem>> getAllTodos() async {
-    final db = await database;
-    final maps = await db.query('todos', orderBy: 'id ASC');
-    return maps.map((m) => TodoItem.fromMap(m)).toList();
+    final prefs = await _store;
+    final raw = prefs.getString('todos');
+    if (raw == null) return [];
+    final list = jsonDecode(raw) as List;
+    return list.map((m) => TodoItem.fromMap(Map<String, dynamic>.from(m))).toList();
   }
 
-  static Future<int> updateTodo(TodoItem todo) async {
-    final db = await database;
-    return db.update('todos', todo.toMap(), where: 'id = ?', whereArgs: [todo.id]);
+  static Future<void> updateTodo(TodoItem todo) async {
+    final prefs = await _store;
+    final todos = await getAllTodos();
+    final idx = todos.indexWhere((t) => t.id == todo.id);
+    if (idx != -1) todos[idx] = todo;
+    await prefs.setString('todos', jsonEncode(todos.map((t) => t.toMap()).toList()));
   }
 
-  static Future<int> deleteTodo(int id) async {
-    final db = await database;
-    return db.delete('todos', where: 'id = ?', whereArgs: [id]);
+  static Future<void> deleteTodo(int id) async {
+    final prefs = await _store;
+    final todos = await getAllTodos();
+    todos.removeWhere((t) => t.id == id);
+    await prefs.setString('todos', jsonEncode(todos.map((t) => t.toMap()).toList()));
+  }
+
+  static Future<void> clearDoneTodos() async {
+    final prefs = await _store;
+    final todos = await getAllTodos();
+    final kept = todos.where((t) => t.isHabit || !t.done).toList();
+    await prefs.setString('todos', jsonEncode(kept.map((t) => t.toMap()).toList()));
+  }
+
+  // ── Daily stats ──────────────────────────────────────────────
+
+  static Future<Map<String, int>> getDailyStats() async {
+    final prefs = await _store;
+    final raw = prefs.getString('daily_stats');
+    if (raw == null) return {};
+    return Map<String, int>.from(jsonDecode(raw));
+  }
+
+  static Future<void> incrementDailyStat(String date, int amount) async {
+    final prefs = await _store;
+    final stats = await getDailyStats();
+    stats[date] = (stats[date] ?? 0) + amount;
+    await prefs.setString('daily_stats', jsonEncode(stats));
+  }
+
+  static Future<String?> getLastOpenDate() async {
+    final prefs = await _store;
+    return prefs.getString('last_open_date');
+  }
+
+  static Future<void> setLastOpenDate(String date) async {
+    final prefs = await _store;
+    await prefs.setString('last_open_date', date);
   }
 }
