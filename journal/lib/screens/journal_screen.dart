@@ -1,6 +1,10 @@
 import 'dart:math' as math;
+// ignore: unnecessary_import
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:intl/intl.dart';
+import '../mood_assets.dart';
 import '../models/entry.dart';
 import '../db/database_helper.dart';
 import 'entry_screen.dart';
@@ -67,27 +71,22 @@ const kNightSky    = Color(0xFF7AABDA);
 const kNightCloud  = Color(0xFFA7C7E4);
 const kNightPaper  = Color(0xFF0F2447);
 
-const _moodLabels = ['Bad', 'Not so good', 'Meh', 'Good', 'Great'];
-const _moodEmojis = ['😞', '😕', '😐', '🙂', '😄'];
-const _moodColors = [
-  Color(0xFFE05C5C),
-  Color(0xFFE0945C),
-  Color(0xFF7AABDA),
-  Color(0xFF5CA8D4),
-  Color(0xFF5CBFA0),
-];
+// Night-sky gradient — uses less of the lighter navy so the contrast
+// against the AppBar stays high and the body keeps its night feel.
+const kNightGradient = LinearGradient(
+  begin: Alignment.topCenter,
+  end: Alignment.bottomCenter,
+  colors: [
+    Color(0xFF0F2447), // deep navy (top — already darker than AppBar)
+    Color(0xFF080E24), // near-black
+  ],
+  stops: [0.0, 0.5],
+);
 
-// Calendar mood colors: green = good, yellow = meh, red = bad
-Color _moodToCalColor(int mood) {
-  switch (mood) {
-    case 4: return const Color(0xFF4CAF50);
-    case 3: return const Color(0xFF8BC34A);
-    case 2: return const Color(0xFFFFC107);
-    case 1: return const Color(0xFFFF7043);
-    case 0: return const Color(0xFFF44336);
-    default: return Colors.transparent;
-  }
-}
+// Mood palette + labels now live in mood_assets.dart (kMoodColors, kMoodLabels)
+// indexed for value 1..5. Journal stores mood 0..4, so map by `mood + 1`.
+Color _moodColor(int mood0to4) => kMoodColors[mood0to4.clamp(0, 4)];
+String _moodLabel(int mood0to4) => kMoodLabels[mood0to4.clamp(0, 4)];
 
 // ── Tag extraction ────────────────────────────────────────────
 Set<String> _extractTags(String text) {
@@ -107,11 +106,13 @@ Set<String> _extractTags(String text) {
   return tags;
 }
 
+String _entryFullText(JournalEntry e) =>
+    '${e.title}. ${e.body}. ${e.today}. ${e.tomorrow}. ${e.rose}. ${e.thorn}. ${e.bud}';
+
 Map<String, List<JournalEntry>> _buildTagIndex(List<JournalEntry> entries) {
   final index = <String, List<JournalEntry>>{};
   for (final entry in entries) {
-    final text = '${entry.title} ${entry.body}';
-    for (final tag in _extractTags(text)) {
+    for (final tag in _extractTags(_entryFullText(entry))) {
       index.putIfAbsent(tag, () => []).add(entry);
     }
   }
@@ -182,6 +183,18 @@ class _JournalScreenState extends State<JournalScreen> with TickerProviderStateM
     );
   }
 
+  // Show all entries that mention `word` anywhere in title/body/rose/thorn/bud.
+  void _showWordEntries(String word) {
+    final pattern = RegExp(
+        r'\b' + RegExp.escape(word.toLowerCase()) + r'\b',
+        caseSensitive: false);
+    final matching = _entries.where((e) {
+      final hay = '${e.title} ${e.body} ${e.rose} ${e.thorn} ${e.bud}';
+      return pattern.hasMatch(hay);
+    }).toList();
+    _showTagEntries(word, matching);
+  }
+
   @override
   Widget build(BuildContext context) {
     final tagIndex = _buildTagIndex(_entries);
@@ -189,7 +202,7 @@ class _JournalScreenState extends State<JournalScreen> with TickerProviderStateM
       ..sort((a, b) => a.date.compareTo(b.date)));
 
     return Scaffold(
-      backgroundColor: kNightPaper,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         backgroundColor: kNightNavy,
         foregroundColor: Colors.white,
@@ -221,7 +234,9 @@ class _JournalScreenState extends State<JournalScreen> with TickerProviderStateM
           ),
         ),
       ),
-      body: Stack(
+      body: Container(
+        decoration: const BoxDecoration(gradient: kNightGradient),
+        child: Stack(
         children: [
           // Star background
           Positioned.fill(
@@ -238,13 +253,16 @@ class _JournalScreenState extends State<JournalScreen> with TickerProviderStateM
                 onTagTap: _showTagEntries,
               ),
               _DataTab(
+                entries: _entries,
                 moodEntries: moodEntries,
                 filter: _moodFilter,
                 onFilterChanged: (v) => setState(() => _moodFilter = v),
+                onWordTap: _showWordEntries,
               ),
             ],
           ),
         ],
+        ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _openEntry(),
@@ -286,7 +304,7 @@ class _JournalTab extends StatelessWidget {
         final e = entries[index];
         return _NoteCard(
           entry: e,
-          entryTags: (_extractTags('${e.title} ${e.body}').toList()..sort()),
+          entryTags: (_extractTags(_entryFullText(e)).toList()..sort()),
           tagIndex: tagIndex,
           onTap: onTap, onDelete: onDelete, onTagTap: onTagTap,
         );
@@ -313,48 +331,95 @@ class _NoteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasMood = entry.mood != null;
-    return GestureDetector(
-      onTap: () => onTap(entry),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.fromLTRB(18, 14, 14, 14),
-        decoration: BoxDecoration(
-          color: kNightNavy.withValues(alpha: 0.85),
-          borderRadius: BorderRadius.circular(16),
-          border: Border(left: BorderSide(
-            color: hasMood ? _moodColors[entry.mood!] : kNightBlue, width: 4)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Expanded(child: Text(
-                entry.title.isEmpty ? '(Untitled)' : entry.title,
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold,
-                    fontSize: 15, fontFamily: 'Montserrat'),
-              )),
-              if (hasMood) ...[
-                const SizedBox(width: 8),
-                Text(_moodEmojis[entry.mood!], style: const TextStyle(fontSize: 18)),
-              ],
-              IconButton(
-                icon: Icon(Icons.delete_outline, color: kNightCloud.withValues(alpha: 0.4), size: 18),
-                padding: EdgeInsets.zero, constraints: const BoxConstraints(),
-                onPressed: () => onDelete(entry.id!),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Slidable(
+          key: ValueKey('note_${entry.id}'),
+          // Swipe right reveals Edit + Delete (kept on a single side per request).
+          startActionPane: ActionPane(
+            motion: const DrawerMotion(),
+            extentRatio: 0.5,
+            children: [
+              SlidableAction(
+                onPressed: (_) => onTap(entry),
+                backgroundColor: kNightBlue,
+                foregroundColor: Colors.white,
+                icon: Icons.edit_outlined,
+                label: 'Edit',
               ),
-            ]),
-            const SizedBox(height: 4),
-            Text(
-              '${DateFormat('EEEE, MMM d').format(entry.date)} · ${DateFormat('h:mm a').format(entry.date)}',
-              style: TextStyle(color: kNightSky, fontSize: 11, fontFamily: 'Montserrat'),
-            ),
-            if (entry.body.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              _TaggedBodyText(
-                text: entry.body.length > 160 ? '${entry.body.substring(0, 160)}…' : entry.body,
-                tagIndex: tagIndex, onTagTap: onTagTap,
+              SlidableAction(
+                onPressed: (_) => onDelete(entry.id!),
+                backgroundColor: const Color(0xFFE05C5C),
+                foregroundColor: Colors.white,
+                icon: Icons.delete_outline,
+                label: 'Delete',
               ),
             ],
+          ),
+          child: GestureDetector(
+            onTap: () => onTap(entry),
+            child: Container(
+              decoration: BoxDecoration(
+                color: kNightNavy.withValues(alpha: 0.85),
+                border: Border(left: BorderSide(
+                  color: hasMood ? _moodColor(entry.mood!) : kNightBlue,
+                  width: 4)),
+              ),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(child: _cardBody(context)),
+                    if (hasMood)
+                      // Mood face on the right edge — fixed width so the
+                      // card height is driven by body content (no overflow).
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 8, horizontal: 10),
+                        child: MoodFace(
+                            value: entry.mood! + 1, size: 56),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _cardBody(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 14, 6, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            entry.title.isEmpty ? '(Untitled)' : entry.title,
+            style: const TextStyle(
+              color: Colors.white, fontWeight: FontWeight.bold,
+              fontSize: 15, fontFamily: 'Montserrat',
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${DateFormat('EEEE, MMM d').format(entry.date)} · ${DateFormat('h:mm a').format(entry.date)}',
+            style: TextStyle(
+                color: kNightSky, fontSize: 11, fontFamily: 'Montserrat'),
+          ),
+          if (entry.body.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _TaggedBodyText(
+              text: entry.body.length > 160
+                  ? '${entry.body.substring(0, 160)}…'
+                  : entry.body,
+              tagIndex: tagIndex,
+              onTagTap: onTagTap,
+            ),
+          ],
             if (entryTags.isNotEmpty) ...[
               const SizedBox(height: 10),
               Wrap(
@@ -398,8 +463,7 @@ class _NoteCard extends StatelessWidget {
                 }).toList(),
               ),
             ],
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -506,16 +570,38 @@ class _TagSheet extends StatelessWidget {
     final mehDays   = withMood.where((e) => e.mood == 2).length;
     final badDays   = withMood.where((e) => e.mood! <= 1).length;
 
+    // Section breakdown — independent of mood. Counts entries where the
+    // tag appears as a tag-eligible word in that specific section.
+    int countIn(String Function(JournalEntry) section) {
+      var n = 0;
+      for (final e in entries) {
+        if (_extractTags(section(e)).contains(tag)) n++;
+      }
+      return n;
+    }
+    final roseCount  = countIn((e) => e.rose);
+    final thornCount = countIn((e) => e.thorn);
+    final budCount   = countIn((e) => e.bud);
+    final hasSectionStats =
+        roseCount > 0 || thornCount > 0 || budCount > 0;
+
     return DraggableScrollableSheet(
       initialChildSize: 0.65,
       minChildSize: 0.4,
       maxChildSize: 0.92,
-      builder: (_, controller) => Container(
-        decoration: const BoxDecoration(
-          color: kNightNavy,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
+      builder: (_, controller) => ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+          child: Container(
+            decoration: BoxDecoration(
+              color: kNightNavy.withValues(alpha: 0.55),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              border: Border(
+                top: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+              ),
+            ),
+            child: Column(
           children: [
             const SizedBox(height: 12),
             Center(child: Container(
@@ -564,12 +650,56 @@ class _TagSheet extends StatelessWidget {
                         ),
                       ),
                     ]),
+
+                    // Section breakdown — Rose / Thorn / Bud are explicit
+                    // sentiment labels and stand on their own, separate
+                    // from the entry's mood.
+                    if (hasSectionStats) ...[
+                      const SizedBox(height: 12),
+                      if (roseCount > 0)
+                        _MoodStatRow(
+                          icon: const Text('🌹', style: TextStyle(fontSize: 14)),
+                          color: const Color(0xFFE05C5C),
+                          label: 'as a Rose',
+                          count: roseCount,
+                          total: total,
+                        ),
+                      if (thornCount > 0) ...[
+                        const SizedBox(height: 6),
+                        _MoodStatRow(
+                          icon: const Text('🌵', style: TextStyle(fontSize: 14)),
+                          color: const Color(0xFFA7A7A7),
+                          label: 'as a Thorn',
+                          count: thornCount,
+                          total: total,
+                        ),
+                      ],
+                      if (budCount > 0) ...[
+                        const SizedBox(height: 6),
+                        _MoodStatRow(
+                          icon: const Text('🌱', style: TextStyle(fontSize: 14)),
+                          color: const Color(0xFF5CBFA0),
+                          label: 'as a Bud',
+                          count: budCount,
+                          total: total,
+                        ),
+                      ],
+                    ],
+
                     if (withMood.isNotEmpty) ...[
                       const SizedBox(height: 12),
+                      if (hasSectionStats)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Container(
+                            height: 1,
+                            color: kNightBlue.withValues(alpha: 0.2),
+                          ),
+                        ),
                       if (goodDays > 0)
                         _MoodStatRow(
-                          emoji: '🙂',
-                          color: const Color(0xFF8BC34A),
+                          icon: const MoodFace(value: 4, size: 18),
+                          color: kMoodColors[3],
                           label: 'on a good day',
                           count: goodDays,
                           total: total,
@@ -577,8 +707,8 @@ class _TagSheet extends StatelessWidget {
                       if (mehDays > 0) ...[
                         const SizedBox(height: 6),
                         _MoodStatRow(
-                          emoji: '😐',
-                          color: const Color(0xFFFFC107),
+                          icon: const MoodFace(value: 3, size: 18),
+                          color: kMoodColors[2],
                           label: 'on a meh day',
                           count: mehDays,
                           total: total,
@@ -587,8 +717,8 @@ class _TagSheet extends StatelessWidget {
                       if (badDays > 0) ...[
                         const SizedBox(height: 6),
                         _MoodStatRow(
-                          emoji: '😞',
-                          color: const Color(0xFFF44336),
+                          icon: const MoodFace(value: 2, size: 18),
+                          color: kMoodColors[1],
                           label: 'on a bad day',
                           count: badDays,
                           total: total,
@@ -609,6 +739,31 @@ class _TagSheet extends StatelessWidget {
                 itemCount: entries.length,
                 itemBuilder: (_, i) {
                   final e = entries[i];
+                  // Section context: where does this tag appear in this entry?
+                  final inRose = _extractTags(e.rose).contains(tag);
+                  final inThorn = _extractTags(e.thorn).contains(tag);
+                  final inBud = _extractTags(e.bud).contains(tag);
+
+                  // Pick badge + accent color: Rose/Thorn/Bud win over mood.
+                  Widget badge;
+                  Color accent;
+                  if (inRose) {
+                    badge = const Text('🌹', style: TextStyle(fontSize: 22));
+                    accent = const Color(0xFFE05C5C);
+                  } else if (inThorn) {
+                    badge = const Text('🌵', style: TextStyle(fontSize: 22));
+                    accent = const Color(0xFFA7A7A7);
+                  } else if (inBud) {
+                    badge = const Text('🌱', style: TextStyle(fontSize: 22));
+                    accent = const Color(0xFF5CBFA0);
+                  } else if (e.mood != null) {
+                    badge = MoodFace(value: e.mood! + 1, size: 22);
+                    accent = _moodColor(e.mood!);
+                  } else {
+                    badge = const SizedBox.shrink();
+                    accent = kNightBlue;
+                  }
+
                   return GestureDetector(
                     onTap: () => onTap(e),
                     child: Container(
@@ -617,8 +772,7 @@ class _TagSheet extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: kNightPaper.withValues(alpha: 0.7),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border(left: BorderSide(
-                          color: e.mood != null ? _moodColors[e.mood!] : kNightBlue, width: 3)),
+                        border: Border(left: BorderSide(color: accent, width: 3)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -629,8 +783,7 @@ class _TagSheet extends StatelessWidget {
                               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold,
                                   fontFamily: 'Montserrat', fontSize: 14),
                             )),
-                            if (e.mood != null)
-                              Text(_moodEmojis[e.mood!], style: const TextStyle(fontSize: 16)),
+                            badge,
                           ]),
                           const SizedBox(height: 4),
                           Text(DateFormat('MMM d, yyyy · EEEE').format(e.date),
@@ -649,7 +802,9 @@ class _TagSheet extends StatelessWidget {
                 },
               ),
             ),
-          ],
+            ],
+          ),
+        ),
         ),
       ),
     );
@@ -657,12 +812,13 @@ class _TagSheet extends StatelessWidget {
 }
 
 class _MoodStatRow extends StatelessWidget {
-  final String emoji, label;
+  final Widget icon;
+  final String label;
   final Color color;
   final int count, total;
 
   const _MoodStatRow({
-    required this.emoji, required this.label,
+    required this.icon, required this.label,
     required this.color, required this.count, required this.total,
   });
 
@@ -670,7 +826,11 @@ class _MoodStatRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final pct = count / total;
     return Row(children: [
-      Text(emoji, style: const TextStyle(fontSize: 14)),
+      SizedBox(
+        width: 22,
+        height: 22,
+        child: Center(child: icon),
+      ),
       const SizedBox(width: 8),
       Expanded(
         child: Column(
@@ -708,11 +868,19 @@ class _MoodStatRow extends StatelessWidget {
 // ── Data tab ─────────────────────────────────────────────────
 
 class _DataTab extends StatelessWidget {
-  final List<JournalEntry> moodEntries; // all entries with mood != null, sorted asc
+  final List<JournalEntry> entries;     // all entries
+  final List<JournalEntry> moodEntries; // entries with mood != null, sorted asc
   final int filter;
   final void Function(int) onFilterChanged;
+  final void Function(String) onWordTap;
 
-  const _DataTab({required this.moodEntries, required this.filter, required this.onFilterChanged});
+  const _DataTab({
+    required this.entries,
+    required this.moodEntries,
+    required this.filter,
+    required this.onFilterChanged,
+    required this.onWordTap,
+  });
 
   List<JournalEntry> get _summaryEntries {
     final now = DateTime.now();
@@ -774,8 +942,218 @@ class _DataTab extends StatelessWidget {
             ))
           else
             _MoodSummary(entries: summary),
+
+          const SizedBox(height: 24),
+          _WordLeaderboard(entries: entries, onWordTap: onWordTap),
         ],
       ),
+    );
+  }
+}
+
+// ── Word leaderboard ─────────────────────────────────────────
+// Words from rose/bud always count toward Good; words from thorn always
+// toward Bad. Title + body use the entry's mood (>=3 good, <=1 bad).
+
+const _kLeaderStop = {
+  'about', 'above', 'after', 'again', 'against', 'also', 'been', 'before',
+  'being', 'below', 'between', 'both', 'cannot', 'could', 'doing', 'down',
+  'during', 'each', 'every', 'from', 'further', 'have', 'having', 'here',
+  'hers', 'into', 'just', 'like', 'more', 'most', 'much', 'myself', 'never',
+  'often', 'once', 'only', 'other', 'ought', 'over', 'really', 'some',
+  'such', 'than', 'that', 'their', 'them', 'then', 'there', 'these',
+  'they', 'this', 'those', 'through', 'today', 'under', 'until', 'very',
+  'were', 'what', 'when', 'where', 'which', 'while', 'will', 'with',
+  'would', 'your', 'yours', 'yourself', 'still', 'going', 'made', 'make',
+  'thing', 'things', 'feel', 'felt', 'know', 'think', 'thought',
+  'said', 'wanted', 'because',
+};
+
+void _addLeaderWords(Map<String, int> counts, String text) {
+  if (text.isEmpty) return;
+  final words = text.toLowerCase().split(RegExp(r"[^a-z']+"));
+  for (final w in words) {
+    if (w.length < 4) continue;
+    if (_kLeaderStop.contains(w)) continue;
+    counts[w] = (counts[w] ?? 0) + 1;
+  }
+}
+
+class _WordLeaderboard extends StatelessWidget {
+  final List<JournalEntry> entries;
+  final void Function(String) onWordTap;
+
+  const _WordLeaderboard({required this.entries, required this.onWordTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final goodCounts = <String, int>{};
+    final badCounts = <String, int>{};
+    for (final e in entries) {
+      _addLeaderWords(goodCounts, e.rose);
+      _addLeaderWords(goodCounts, e.bud);
+      _addLeaderWords(badCounts, e.thorn);
+      if (e.mood != null) {
+        if (e.mood! >= 3) {
+          _addLeaderWords(goodCounts, e.title);
+          _addLeaderWords(goodCounts, e.body);
+        } else if (e.mood! <= 1) {
+          _addLeaderWords(badCounts, e.title);
+          _addLeaderWords(badCounts, e.body);
+        }
+      }
+    }
+
+    int goodScore(String w) => (goodCounts[w] ?? 0) - (badCounts[w] ?? 0);
+    int badScore(String w) => (badCounts[w] ?? 0) - (goodCounts[w] ?? 0);
+
+    final goodTop = (goodCounts.keys.toList()
+          ..sort((a, b) => goodScore(b).compareTo(goodScore(a))))
+        .where((w) => goodScore(w) > 0)
+        .take(8)
+        .toList();
+    final badTop = (badCounts.keys.toList()
+          ..sort((a, b) => badScore(b).compareTo(badScore(a))))
+        .where((w) => badScore(w) > 0)
+        .take(8)
+        .toList();
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      decoration: BoxDecoration(
+        color: kNightNavy.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: kNightBlue.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Word leaderboard',
+            style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.85),
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                fontFamily: 'Montserrat'),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Tap a word to see entries that mention it.',
+            style: TextStyle(
+                color: kNightCloud.withValues(alpha: 0.65),
+                fontSize: 11,
+                fontFamily: 'Montserrat'),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _LeaderColumn(
+                  title: '🌅 Good days',
+                  color: const Color(0xFF8BC34A),
+                  words: goodTop,
+                  countFor: (w) => goodCounts[w] ?? 0,
+                  onTap: onWordTap,
+                  emptyHint: badCounts.isEmpty
+                      ? 'Add a Rose or write on a good-mood day.'
+                      : 'Not enough good-day text yet.',
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _LeaderColumn(
+                  title: '🌧️ Bad days',
+                  color: const Color(0xFFE05C5C),
+                  words: badTop,
+                  countFor: (w) => badCounts[w] ?? 0,
+                  onTap: onWordTap,
+                  emptyHint: goodCounts.isEmpty
+                      ? 'Add a Thorn or write on a bad-mood day.'
+                      : 'Not enough bad-day text yet.',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LeaderColumn extends StatelessWidget {
+  final String title;
+  final Color color;
+  final List<String> words;
+  final int Function(String) countFor;
+  final void Function(String) onTap;
+  final String emptyHint;
+
+  const _LeaderColumn({
+    required this.title,
+    required this.color,
+    required this.words,
+    required this.countFor,
+    required this.onTap,
+    required this.emptyHint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title,
+            style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+                fontFamily: 'Montserrat')),
+        const SizedBox(height: 6),
+        if (words.isEmpty)
+          Text(emptyHint,
+              style: TextStyle(
+                  color: kNightCloud.withValues(alpha: 0.45),
+                  fontSize: 10,
+                  fontStyle: FontStyle.italic,
+                  fontFamily: 'Montserrat'))
+        else
+          ...List.generate(words.length, (i) {
+            final w = words[i];
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: GestureDetector(
+                onTap: () => onTap(w),
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      child: Text('${i + 1}',
+                          style: TextStyle(
+                              color: color.withValues(alpha: 0.7),
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold)),
+                    ),
+                    Expanded(
+                      child: Text(w,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontFamily: 'Montserrat',
+                              fontWeight: FontWeight.w500)),
+                    ),
+                    Text('${countFor(w)}×',
+                        style: TextStyle(
+                            color: color.withValues(alpha: 0.7),
+                            fontSize: 10,
+                            fontFamily: 'Montserrat')),
+                  ],
+                ),
+              ),
+            );
+          }),
+      ],
     );
   }
 }
@@ -897,14 +1275,17 @@ class _MoodCalendarState extends State<_MoodCalendar> {
               final dateKey = DateFormat('yyyy-MM-dd').format(thisDay);
               final mood = dayMoods[dateKey];
 
+              // When a mood is logged, just show the illustrated face —
+              // it fills the cell crisply (size: null in MoodFace).
+              if (mood != null && !isFuture) {
+                return MoodFace(value: mood + 1);
+              }
               return Container(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: isFuture
                       ? Colors.transparent
-                      : mood != null
-                          ? _moodToCalColor(mood)
-                          : kNightBlue.withValues(alpha: 0.12),
+                      : kNightBlue.withValues(alpha: 0.12),
                   border: isToday
                       ? Border.all(color: kNightSky, width: 1.5)
                       : null,
@@ -915,12 +1296,9 @@ class _MoodCalendarState extends State<_MoodCalendar> {
                     style: TextStyle(
                       color: isFuture
                           ? Colors.transparent
-                          : mood != null
-                              ? Colors.white
-                              : kNightCloud.withValues(alpha: 0.3),
+                          : kNightCloud.withValues(alpha: 0.3),
                       fontSize: 10,
                       fontFamily: 'Montserrat',
-                      fontWeight: mood != null ? FontWeight.bold : FontWeight.normal,
                     ),
                   ),
                 ),
@@ -929,16 +1307,24 @@ class _MoodCalendarState extends State<_MoodCalendar> {
           ),
           const SizedBox(height: 14),
 
-          // Legend
+          // Legend — illustrated mood faces, Great → Bad.
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _CalLegend(color: const Color(0xFF4CAF50), label: 'Great'),
-              _CalLegend(color: const Color(0xFF8BC34A), label: 'Good'),
-              _CalLegend(color: const Color(0xFFFFC107), label: 'Meh'),
-              _CalLegend(color: const Color(0xFFFF7043), label: 'Low'),
-              _CalLegend(color: const Color(0xFFF44336), label: 'Bad'),
-            ],
+            children: List.generate(5, (i) {
+              final v = 5 - i;
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  MoodFace(value: v, size: 16),
+                  const SizedBox(width: 3),
+                  Text(kMoodLabels[v - 1],
+                      style: TextStyle(
+                          color: kNightCloud.withValues(alpha: 0.7),
+                          fontSize: 9,
+                          fontFamily: 'Montserrat')),
+                ]),
+              );
+            }),
           ),
         ],
       ),
@@ -964,23 +1350,6 @@ class _NavArrow extends StatelessWidget {
   }
 }
 
-class _CalLegend extends StatelessWidget {
-  final Color color;
-  final String label;
-  const _CalLegend({required this.color, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 10),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Container(width: 8, height: 8, decoration: BoxDecoration(shape: BoxShape.circle, color: color)),
-        const SizedBox(width: 3),
-        Text(label, style: TextStyle(color: kNightCloud.withValues(alpha: 0.7), fontSize: 9, fontFamily: 'Montserrat')),
-      ]),
-    );
-  }
-}
 
 // ── Mood summary ──────────────────────────────────────────────
 
@@ -1012,10 +1381,10 @@ class _MoodSummary extends StatelessWidget {
           )),
           const SizedBox(height: 12),
           Row(children: [
-            Text(_moodEmojis[avgIdx], style: const TextStyle(fontSize: 32)),
+            MoodFace(value: avgIdx + 1, size: 40),
             const SizedBox(width: 12),
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Average: ${_moodLabels[avgIdx]}',
+              Text('Average: ${_moodLabel(avgIdx)}',
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Montserrat')),
               Text('$total entries tracked',
                 style: TextStyle(color: kNightSky, fontSize: 12, fontFamily: 'Montserrat')),
@@ -1028,7 +1397,7 @@ class _MoodSummary extends StatelessWidget {
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Row(children: [
-                Text(_moodEmojis[idx], style: const TextStyle(fontSize: 14)),
+                MoodFace(value: idx + 1, size: 18),
                 const SizedBox(width: 8),
                 Expanded(child: Stack(children: [
                   Container(height: 8, decoration: BoxDecoration(
@@ -1036,7 +1405,7 @@ class _MoodSummary extends StatelessWidget {
                   FractionallySizedBox(
                     widthFactor: pct,
                     child: Container(height: 8, decoration: BoxDecoration(
-                      color: _moodColors[idx], borderRadius: BorderRadius.circular(4))),
+                      color: _moodColor(idx), borderRadius: BorderRadius.circular(4))),
                   ),
                 ])),
                 const SizedBox(width: 8),
