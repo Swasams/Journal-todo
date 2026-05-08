@@ -1,8 +1,10 @@
-// ignore: unnecessary_import
+﻿// ignore: unnecessary_import
 import 'dart:ui';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../dev_seed.dart'; // âš ï¸ DEV ONLY â€” strip with the DEV panel.
 import '../../models/todo_item.dart';
 import '../../models/trackable_metric.dart';
 import 'todo_theme.dart';
@@ -21,7 +23,7 @@ class _ChartedSeries {
   });
 }
 
-// Weight goal anchors — used for the projected-loss reference line.
+// Weight goal anchors â€” used for the projected-loss reference line.
 final DateTime _kWeightStartDate = DateTime(2026, 4, 26);
 final DateTime _kWeightEndDate = DateTime(2026, 12, 31);
 const double _kWeightStartKg = 70.0;
@@ -99,14 +101,14 @@ class _StatsTabState extends State<StatsTab> {
   List<_Series> _buildSeries({required bool initial}) {
     final list = <_Series>[];
     for (final m in widget.metrics) {
-      // Mood line is locked to brown — uneditable, since Mood is the
-      // only fixed metric (no edit dialog). Other metrics use whatever
-      // colour the user picked.
+      // Mood line uses the pink from the Great-face palette â€” locked
+      // since Mood is the only fixed metric (no edit dialog). Other
+      // metrics use whatever colour the user picked.
       final isMood = m.name.toLowerCase() == 'mood';
       list.add(_Series(
         id: 'm_${m.id}',
         label: m.name,
-        color: isMood ? kBrown : Color(m.colorValue),
+        color: isMood ? Color(0xFFE91E48) : Color(m.colorValue),
         isMetric: true,
         metric: m,
         unit: m.unit,
@@ -150,7 +152,7 @@ class _StatsTabState extends State<StatsTab> {
   List<double?> _yForSeries(_Series s, List<DateTime> weeks) {
     final values = <double?>[];
     for (final start in weeks) {
-      final end = start.add(const Duration(days: 7));
+      final end = start.add(Duration(days: 7));
       if (s.isMetric) {
         final m = s.metric!;
         final readings = <double>[];
@@ -209,11 +211,17 @@ class _StatsTabState extends State<StatsTab> {
     return ListView(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
         children: [
+          // âš ï¸ DEV-only seed panel. Hidden on mobile so the production
+          // build on iOS / Android never shows it.
+          if (kIsWeb) ...[
+            _DevSeedPanel(onReload: widget.onReload),
+            SizedBox(height: 14),
+          ],
           // Range selector
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Trends',
+              Text('Trends',
                   style: TextStyle(
                       color: kBrown,
                       fontWeight: FontWeight.bold,
@@ -233,7 +241,7 @@ class _StatsTabState extends State<StatsTab> {
                   backgroundColor: WidgetStateProperty.resolveWith((states) =>
                       states.contains(WidgetState.selected)
                           ? kSunsetPetal
-                          : kFrostTint.withValues(alpha: 0.7)),
+                          : kFrostTint),
                   foregroundColor: WidgetStateProperty.resolveWith((states) =>
                       states.contains(WidgetState.selected)
                           ? Colors.white
@@ -242,9 +250,9 @@ class _StatsTabState extends State<StatsTab> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: 10),
 
-          // Chart — frosted glass over the morning gradient.
+          // Chart â€” frosted glass over the morning gradient.
           DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
@@ -257,9 +265,8 @@ class _StatsTabState extends State<StatsTab> {
               child: Container(
                 padding: const EdgeInsets.fromLTRB(20, 12, 24, 8),
                 decoration: BoxDecoration(
-                  color: kFrostTint.withValues(alpha: 0.7),
+                  color: kFrostTint,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: kRosebudBlush, width: 1.5),
                 ),
                 child: SizedBox(
                   height: 240,
@@ -279,9 +286,9 @@ class _StatsTabState extends State<StatsTab> {
           ),
 
           if (visible.isNotEmpty) ...[
-            const SizedBox(height: 6),
+            SizedBox(height: 6),
             Text(
-              'Each line normalized to its own min–max so trends are comparable. Tap a card on the Todo tab for actual values.',
+              'Each line normalized to its own minâ€“max so trends are comparable. Tap a card on the Todo tab for actual values.',
               style: TextStyle(
                   color: kBrown.withValues(alpha: 0.5),
                   fontSize: 10,
@@ -289,16 +296,16 @@ class _StatsTabState extends State<StatsTab> {
             ),
           ],
 
-          const SizedBox(height: 18),
+          SizedBox(height: 18),
 
-          // Toggles — metrics
+          // Toggles â€” metrics
           _ToggleSection(
             title: 'Metrics',
             series: _series.where((s) => s.isMetric).toList(),
             onToggle: (s) => setState(() => s.enabled = !s.enabled),
           ),
-          const SizedBox(height: 14),
-          // Toggles — habits
+          SizedBox(height: 14),
+          // Toggles â€” habits
           _ToggleSection(
             title: 'Habits',
             series: _series.where((s) => !s.isMetric).toList(),
@@ -352,7 +359,7 @@ class _StatsTabState extends State<StatsTab> {
     }
 
     // When Weight is enabled, append a dashed reference line for the
-    // 70→55 kg target pace from Apr 26 → Dec 31 2026.
+    // 70â†’55 kg target pace from Apr 26 â†’ Dec 31 2026.
     if (weightEnabled) {
       final totalDays = _kWeightEndDate
           .difference(_kWeightStartDate)
@@ -387,7 +394,7 @@ class _StatsTabState extends State<StatsTab> {
           color: projColor.withValues(alpha: 0.45),
           barWidth: 1.5,
           dashArray: const [6, 4],
-          dotData: const FlDotData(show: false),
+          dotData: FlDotData(show: false),
           belowBarData: BarAreaData(show: false),
         ),
       ));
@@ -418,10 +425,10 @@ class _StatsTabState extends State<StatsTab> {
       ),
       borderData: FlBorderData(show: false),
       titlesData: FlTitlesData(
-        leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
         rightTitles:
-            const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
         bottomTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
@@ -454,7 +461,7 @@ class _StatsTabState extends State<StatsTab> {
               final ser = c.series;
               final rawV = c.raw[sp.x.toInt()];
               final rawStr = rawV == null
-                  ? '—'
+                  ? 'â€”'
                   : ser.isMetric
                       ? '${_pretty(rawV)} ${ser.unit}'
                       : '${(rawV * 100).round()}%';
@@ -467,7 +474,7 @@ class _StatsTabState extends State<StatsTab> {
                 children: [
                   TextSpan(
                     text: rawStr,
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.normal,
                         fontSize: 11),
@@ -488,7 +495,7 @@ class _StatsTabState extends State<StatsTab> {
   }
 }
 
-// ── Toggle section ──────────────────────────────────────────────
+// â”€â”€ Toggle section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _ToggleSection extends StatelessWidget {
   final String title;
   final List<_Series> series;
@@ -507,12 +514,12 @@ class _ToggleSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(title,
-            style: const TextStyle(
+            style: TextStyle(
                 color: kBrown,
                 fontWeight: FontWeight.bold,
                 fontSize: 13,
                 fontFamily: 'Montserrat')),
-        const SizedBox(height: 8),
+        SizedBox(height: 8),
         Wrap(
           spacing: 6,
           runSpacing: 6,
@@ -525,7 +532,7 @@ class _ToggleSection extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: s.enabled
                       ? s.color
-                      : kFrostTint.withValues(alpha: 0.7),
+                      : kFrostTint,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: s.color, width: 1.5),
                 ),
@@ -540,7 +547,7 @@ class _ToggleSection extends StatelessWidget {
                         color: s.enabled ? Colors.white : s.color,
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    SizedBox(width: 6),
                     Text(
                       s.label,
                       style: TextStyle(
@@ -558,6 +565,117 @@ class _ToggleSection extends StatelessWidget {
           }).toList(),
         ),
       ],
+    );
+  }
+}
+
+// âš ï¸ DEV ONLY â€” strip with the dev_seed import. Web/PC-only seed
+// shortcuts so the dashboard / charts can be tested without weeks of
+// real input.
+class _DevSeedPanel extends StatefulWidget {
+  final Future<void> Function() onReload;
+  const _DevSeedPanel({required this.onReload});
+
+  @override
+  State<_DevSeedPanel> createState() => _DevSeedPanelState();
+}
+
+class _DevSeedPanelState extends State<_DevSeedPanel> {
+  bool _busy = false;
+
+  Future<void> _run(Future<void> Function() action, String done) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    await action();
+    await widget.onReload();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      duration: Duration(seconds: 2),
+      backgroundColor: kBrown,
+      content: Text(done),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: kBrown.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: kBrown.withValues(alpha: 0.25), width: 1),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.science_outlined,
+              size: 16, color: kBrown.withValues(alpha: 0.7)),
+          SizedBox(width: 6),
+          Text('DEV',
+              style: TextStyle(
+                  color: kBrown.withValues(alpha: 0.7),
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2)),
+          SizedBox(width: 12),
+          Expanded(
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _btn(
+                  icon: Icons.auto_fix_high,
+                  label: 'Load fake data',
+                  onTap: () => _run(
+                      DevSeed.loadFakeData, 'Fake data loaded'),
+                ),
+                _btn(
+                  icon: Icons.delete_outline,
+                  label: 'Wipe all',
+                  destructive: true,
+                  onTap: () => _run(
+                      DevSeed.wipeAll, 'Wiped â€” restart to re-seed'),
+                ),
+              ],
+            ),
+          ),
+          if (_busy)
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: kBrown),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _btn({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    bool destructive = false,
+  }) {
+    final color = destructive ? kSunsetPetal : kBrown;
+    return GestureDetector(
+      onTap: _busy ? null : onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: kFrostTint,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 13, color: color),
+          SizedBox(width: 4),
+          Text(label,
+              style: TextStyle(
+                  color: color,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600)),
+        ]),
+      ),
     );
   }
 }

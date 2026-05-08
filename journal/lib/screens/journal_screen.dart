@@ -86,6 +86,15 @@ const kNightGradient = LinearGradient(
 // Mood palette + labels now live in mood_assets.dart (kMoodColors, kMoodLabels)
 // indexed for value 1..5. Journal stores mood 0..4, so map by `mood + 1`.
 Color _moodColor(int mood0to4) => kMoodColors[mood0to4.clamp(0, 4)];
+
+// Tint used for the journal note card background. Meh's bright yellow
+// reads badly on the night gradient, so it gets the warm yellow frost
+// tint the Todo page uses for its panels.
+const _kJournalMehTint = Color(0xFFF5DC8B);
+Color _journalCardTint(int mood0to4) {
+  if (mood0to4 == 2) return _kJournalMehTint;
+  return _moodColor(mood0to4);
+}
 String _moodLabel(int mood0to4) => kMoodLabels[mood0to4.clamp(0, 4)];
 
 // ── Tag extraction ────────────────────────────────────────────
@@ -337,8 +346,8 @@ class _NoteCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         child: Slidable(
           key: ValueKey('note_${entry.id}'),
-          // Swipe right reveals Edit + Delete (kept on a single side per request).
-          startActionPane: ActionPane(
+          // Swipe LEFT reveals Edit + Delete.
+          endActionPane: ActionPane(
             motion: const DrawerMotion(),
             extentRatio: 0.5,
             children: [
@@ -361,29 +370,17 @@ class _NoteCard extends StatelessWidget {
           child: GestureDetector(
             onTap: () => onTap(entry),
             child: Container(
+              width: double.infinity,
+              // Whole card is washed in the day's mood colour. Meh cards
+              // use the warm yellow frost tint instead of the bright
+              // mood-yellow so they don't fight the night background.
               decoration: BoxDecoration(
-                color: kNightNavy.withValues(alpha: 0.85),
-                border: Border(left: BorderSide(
-                  color: hasMood ? _moodColor(entry.mood!) : kNightBlue,
-                  width: 4)),
+                color: hasMood
+                    ? _journalCardTint(entry.mood!)
+                        .withValues(alpha: 0.85)
+                    : kNightNavy.withValues(alpha: 0.85),
               ),
-              child: IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(child: _cardBody(context)),
-                    if (hasMood)
-                      // Mood face on the right edge — fixed width so the
-                      // card height is driven by body content (no overflow).
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            vertical: 8, horizontal: 10),
-                        child: MoodFace(
-                            value: entry.mood! + 1, size: 56),
-                      ),
-                  ],
-                ),
-              ),
+              child: _cardBody(context),
             ),
           ),
         ),
@@ -1050,7 +1047,7 @@ class _WordLeaderboard extends StatelessWidget {
             children: [
               Expanded(
                 child: _LeaderColumn(
-                  title: '🌅 Good days',
+                  title: '☀️ Good days',
                   color: const Color(0xFF8BC34A),
                   words: goodTop,
                   countFor: (w) => goodCounts[w] ?? 0,

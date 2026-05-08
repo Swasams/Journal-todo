@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../mood_assets.dart';
 import '../models/entry.dart';
@@ -99,125 +98,97 @@ class _EntryScreenState extends State<EntryScreen> {
   }
 
   Future<int?> _showMoodPicker({int? existingMood}) async {
+    // Same shape as the Todo Mood metric picker (AlertDialog +
+    // SingleChildScrollView), just tinted blue for the journal.
     return showDialog<int>(
       context: context,
       barrierDismissible: true,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-            child: Container(
-              decoration: BoxDecoration(
-                color: kNightNavy.withValues(alpha: 0.55),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.12),
-                  width: 1,
-                ),
-              ),
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'How are you feeling?',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'Montserrat',
-                ),
-              ),
-              const SizedBox(height: 20),
-              // Big stacked mood picker — face on the left, label on the right.
-              // Great → Bad top-to-bottom.
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: List.generate(5, (i) {
-                  final idx = 4 - i;
-                  final selected = existingMood == idx;
-                  return GestureDetector(
-                    onTap: () => Navigator.pop(ctx, idx),
-                    behavior: HitTestBehavior.opaque,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // Fixed-width slot keeps each face's centre on
-                          // the same x — without it the source PNGs
-                          // (heart, drop, blob…) drift left/right because
-                          // their visual centres differ from the bounding
-                          // box centres.
-                          SizedBox(
-                            width: 110,
-                            height: 110,
-                            child: Center(
-                              child: AnimatedScale(
-                                scale: selected ? 1.0 : 0.92,
-                                duration: const Duration(milliseconds: 150),
-                                child: Opacity(
-                                  opacity: selected ? 1.0 : 0.85,
-                                  child: MoodFace(value: idx + 1, size: 100),
-                                ),
-                              ),
+      builder: (ctx) => AlertDialog(
+        backgroundColor: kNightNavy,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('How are you feeling?',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(5, (i) {
+              // Journal stores mood 0..4; show Great → Bad top-to-bottom.
+              final idx = 4 - i;
+              final selected = existingMood == idx;
+              return GestureDetector(
+                onTap: () => Navigator.pop(ctx, idx),
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 110,
+                        height: 110,
+                        child: Center(
+                          child: AnimatedScale(
+                            scale: selected ? 1.0 : 0.92,
+                            duration: const Duration(milliseconds: 150),
+                            child: Opacity(
+                              opacity: selected ? 1.0 : 0.85,
+                              child:
+                                  MoodFace(value: idx + 1, size: 100),
                             ),
                           ),
-                          const SizedBox(width: 16),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                kMoodLabels[idx],
-                                style: TextStyle(
-                                  color: selected
-                                      ? Colors.white
-                                      : kNightCloud.withValues(alpha: 0.7),
-                                  fontSize: 18,
-                                  fontWeight: selected
-                                      ? FontWeight.bold
-                                      : FontWeight.w500,
-                                  fontFamily: 'Montserrat',
-                                ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              kMoodLabels[idx],
+                              style: TextStyle(
+                                color: selected
+                                    ? Colors.white
+                                    : kNightCloud.withValues(alpha: 0.7),
+                                fontSize: 18,
+                                fontWeight: selected
+                                    ? FontWeight.bold
+                                    : FontWeight.w500,
+                                fontFamily: 'Montserrat',
                               ),
-                              if (selected)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 2),
-                                  child: Container(
-                                    height: 2,
-                                    width: 40,
-                                    decoration: BoxDecoration(
-                                      color: kMoodColors[idx],
-                                      borderRadius: BorderRadius.circular(1),
-                                    ),
+                            ),
+                            if (selected)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Container(
+                                  height: 2,
+                                  width: 40,
+                                  decoration: BoxDecoration(
+                                    color: kMoodColors[idx],
+                                    borderRadius: BorderRadius.circular(1),
                                   ),
                                 ),
-                            ],
-                          ),
-                        ],
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                }),
-              ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, null),
-                child: Text(
-                  'Skip',
-                  style: TextStyle(color: kNightSky, fontFamily: 'Montserrat'),
+                    ],
+                  ),
                 ),
-              ),
-                ],
-              ),
-            ),
+              );
+            }),
           ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              'Skip',
+              style:
+                  TextStyle(color: kNightSky, fontFamily: 'Montserrat'),
+            ),
+          ),
+        ],
       ),
     );
   }

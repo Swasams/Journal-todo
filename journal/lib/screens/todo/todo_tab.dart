@@ -1,8 +1,10 @@
+﻿import 'dart:async';
 // ignore: unnecessary_import
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/todo_item.dart';
 import '../../models/trackable_metric.dart';
 import '../../mood_assets.dart';
@@ -43,21 +45,16 @@ class _ReorderSheetState extends State<_ReorderSheet> {
               maxHeight: MediaQuery.of(context).size.height * 0.8,
             ),
             decoration: BoxDecoration(
-              // Deep burnt-orange surface — same family as the AppBar /
-              // gradient top, so the sheet feels anchored to the page.
-              color: const Color(0xFFE8753A).withValues(alpha: 0.95),
+              color: kFrostTint,
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(20)),
-              border: Border(
-                top: BorderSide(color: kBrown.withValues(alpha: 0.25)),
-              ),
             ),
             child: SafeArea(
               top: false,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   Container(
                     width: 36,
                     height: 4,
@@ -66,19 +63,19 @@ class _ReorderSheetState extends State<_ReorderSheet> {
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  SizedBox(height: 14),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Row(
                       children: [
-                        const Icon(Icons.swap_vert,
-                            color: Colors.white, size: 18),
-                        const SizedBox(width: 6),
+                        Icon(Icons.swap_vert,
+                            color: kBrown, size: 18),
+                        SizedBox(width: 6),
                         Text(
                           'Reorder ${widget.priorityLabel}'
-                          '${widget.overdueGroup ? " · overdue" : ""}',
-                          style: const TextStyle(
-                            color: Colors.white,
+                          '${widget.overdueGroup ? " Â· overdue" : ""}',
+                          style: TextStyle(
+                            color: kBrown,
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
                           ),
@@ -86,7 +83,7 @@ class _ReorderSheetState extends State<_ReorderSheet> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   Flexible(
                     child: ReorderableListView.builder(
                       shrinkWrap: true,
@@ -106,7 +103,7 @@ class _ReorderSheetState extends State<_ReorderSheet> {
                           margin: const EdgeInsets.only(bottom: 6),
                           padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
                           decoration: BoxDecoration(
-                            color: kFrostTint.withValues(alpha: 0.7),
+                            color: kFrostTint,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
                               color:
@@ -119,15 +116,15 @@ class _ReorderSheetState extends State<_ReorderSheet> {
                               Icon(Icons.drag_indicator,
                                   size: 18,
                                   color: kBrown.withValues(alpha: 0.5)),
-                              const SizedBox(width: 6),
+                              SizedBox(width: 6),
                               Icon(Icons.flag,
                                   size: 14,
                                   color: kPriorityColors[t.priority]),
-                              const SizedBox(width: 6),
+                              SizedBox(width: 6),
                               Expanded(
                                 child: Text(
                                   t.title,
-                                  style: const TextStyle(color: kBrown),
+                                  style: TextStyle(color: kBrown),
                                 ),
                               ),
                             ],
@@ -143,10 +140,10 @@ class _ReorderSheetState extends State<_ReorderSheet> {
                       children: [
                         TextButton(
                           onPressed: () => Navigator.pop(context),
-                          child: const Text('Cancel',
+                          child: Text('Cancel',
                               style: TextStyle(color: kLeaflitGreen)),
                         ),
-                        const SizedBox(width: 8),
+                        SizedBox(width: 8),
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: kSunsetPetal,
@@ -155,7 +152,7 @@ class _ReorderSheetState extends State<_ReorderSheet> {
                                 borderRadius: BorderRadius.circular(8)),
                           ),
                           onPressed: () => Navigator.pop(context, _items),
-                          child: const Text('Save'),
+                          child: Text('Save'),
                         ),
                       ],
                     ),
@@ -199,6 +196,8 @@ class TodoTab extends StatelessWidget {
   final Future<void> Function(TodoItem t) onDuplicateTodo;
   final Future<void> Function() onClearDone;
   final Future<void> Function(List<TodoItem> reordered) onReorderChecklist;
+  final Future<void> Function(TodoItem t) onFailItem;
+  final Future<void> Function(TodoItem t, DateTime? date) onReschedule;
 
   const TodoTab({
     super.key,
@@ -215,9 +214,11 @@ class TodoTab extends StatelessWidget {
     required this.onDuplicateTodo,
     required this.onClearDone,
     required this.onReorderChecklist,
+    required this.onFailItem,
+    required this.onReschedule,
   });
 
-  // Sort key for the checklist: priority asc (high → low), then user-set
+  // Sort key for the checklist: priority asc (high â†’ low), then user-set
   // order asc, then id for stable fallback when both are zero.
   int _cmp(TodoItem a, TodoItem b) {
     final p = a.priority.compareTo(b.priority);
@@ -229,7 +230,7 @@ class TodoTab extends StatelessWidget {
 
   // Combined checklist (due habits + active tasks) in display order.
   // Overdue items (delayed non-daily habits + tasks past their nextDue)
-  // float to the top — within that group, sort by priority then by how
+  // float to the top â€” within that group, sort by priority then by how
   // late they are. The remaining items sort by priority + manual order.
   List<TodoItem> get _checklist {
     final t0 = parseDate(today());
@@ -238,9 +239,13 @@ class TodoTab extends StatelessWidget {
       return parseDate(x.nextDue!).isBefore(t0);
     }
 
+    final t0Key = today();
     final items = todos.where((t) {
       if (t.isHabit) return isDue(t);
-      return !t.done;
+      // Today dashboard: only tasks dated today (no overdue, no future,
+      // no datless tasks â€” those live on the Todo tab).
+      if (t.done) return false;
+      return t.nextDue == t0Key;
     }).toList();
 
     items.sort((a, b) {
@@ -285,10 +290,10 @@ class TodoTab extends StatelessWidget {
     if (bucket.length < 2) {
       ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
         backgroundColor: kBrown,
-        duration: const Duration(seconds: 2),
+        duration: Duration(seconds: 2),
         content: Text(
           'Only one ${kPriorityLabels[pivot.priority]} '
-          '${pivotOverdue ? "overdue " : ""}item — nothing to reorder.',
+          '${pivotOverdue ? "overdue " : ""}item â€” nothing to reorder.',
         ),
       ));
       return;
@@ -336,9 +341,9 @@ class TodoTab extends StatelessWidget {
     return ListView(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
         children: [
-          // ── Daily metrics row ──────────────────────────────
+          // â”€â”€ Daily metrics row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           _SectionHeader(title: 'Daily metrics', subtitle: today()),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           SizedBox(
             height: 130,
             child: Builder(
@@ -373,9 +378,9 @@ class TodoTab extends StatelessWidget {
             ),
           ),
 
-          const SizedBox(height: 18),
+          SizedBox(height: 18),
 
-          // ── Today summary callout ──────────────────────────
+          // â”€â”€ Today summary callout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           _DayCallout(
             habitsDone: habitsCompletedToday,
             habitsTotal: totalHabits,
@@ -383,26 +388,32 @@ class TodoTab extends StatelessWidget {
             moodAccent: _todayMoodColor(),
           ),
 
-          const SizedBox(height: 18),
+          SizedBox(height: 10),
+          _TimePerTaskPanel(
+            remaining: checklist.length,
+            done: habitsCompletedToday + doneTasks.length,
+          ),
 
-          // ── Today's checklist ──────────────────────────────
+          SizedBox(height: 18),
+
+          // â”€â”€ Today's checklist â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           _SectionHeader(
             title: "Today's checklist",
             subtitle: '${checklist.length} to go',
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           if (checklist.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 24),
               child: Center(
                 child: Text(
-                  'Nothing left for today. Nice. 🌅',
+                  'Nothing left for today. Nice. ðŸŒ…',
                   style: TextStyle(color: kBrown.withValues(alpha: 0.45)),
                 ),
               ),
             )
           else
-            // Plain list — reorder happens through the per-item Reorder
+            // Plain list â€” reorder happens through the per-item Reorder
             // swipe action, which opens a modal scoped to that item's
             // priority bucket. Inline drag-to-reorder turned out flaky
             // on web with the Slidable + frosted-glass layout.
@@ -414,6 +425,7 @@ class TodoTab extends StatelessWidget {
                       onTap: () => onEditTodo(t),
                       onDelete: () => onDeleteTodo(t.id!),
                       onDuplicate: () => onDuplicateTodo(t),
+                      onFail: () => onFailItem(t),
                       onOpenReorder: () =>
                           _openReorderModal(context, t, checklist),
                     )
@@ -423,13 +435,29 @@ class TodoTab extends StatelessWidget {
                       onTap: () => onEditTodo(t),
                       onDelete: () => onDeleteTodo(t.id!),
                       onDuplicate: () => onDuplicateTodo(t),
+                      onFail: () => onFailItem(t),
+                      onReschedule: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: t.nextDue != null
+                              ? parseDate(t.nextDue!)
+                              : DateTime.now(),
+                          firstDate: DateTime.now()
+                              .subtract(Duration(days: 365)),
+                          lastDate:
+                              DateTime.now().add(Duration(days: 365 * 3)),
+                        );
+                        if (picked != null) {
+                          await onReschedule(t, picked);
+                        }
+                      },
                       onOpenReorder: () =>
                           _openReorderModal(context, t, checklist),
                     );
             }),
 
           if (doneTasks.isNotEmpty) ...[
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             _DoneSection(
               done: doneTasks,
               onClearDone: onClearDone,
@@ -443,7 +471,7 @@ class TodoTab extends StatelessWidget {
   }
 }
 
-// ── Section header ──────────────────────────────────────────────
+// â”€â”€ Section header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _SectionHeader extends StatelessWidget {
   final String title;
   final String subtitle;
@@ -455,7 +483,7 @@ class _SectionHeader extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(title,
-            style: const TextStyle(
+            style: TextStyle(
                 color: kBrown,
                 fontWeight: FontWeight.bold,
                 fontSize: 15,
@@ -470,7 +498,192 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-// ── Day summary callout ─────────────────────────────────────────
+// â”€â”€ Day summary callout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â”€â”€ Time-per-task panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Text shows how many minutes/hours of the day are left per remaining
+// task. Bar shows progress through today's checklist (done vs total).
+class _TimePerTaskPanel extends StatefulWidget {
+  final int remaining; // items still on today's checklist
+  final int done;      // items completed today (tasks + habits)
+  const _TimePerTaskPanel({required this.remaining, required this.done});
+
+  @override
+  State<_TimePerTaskPanel> createState() => _TimePerTaskPanelState();
+}
+
+class _TimePerTaskPanelState extends State<_TimePerTaskPanel> {
+  static const _prefsKey = 'time_per_task_target'; // stored as "HH:MM"
+  // Default target = midnight (00:00) → matches the original behaviour.
+  TimeOfDay _target = const TimeOfDay(hour: 0, minute: 0);
+  Timer? _ticker;
+  DateTime _now = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTarget();
+    // Update every minute so the time math stays current.
+    _ticker = Timer.periodic(Duration(minutes: 1), (_) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadTarget() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_prefsKey);
+    if (raw == null) return;
+    final parts = raw.split(':');
+    if (parts.length != 2) return;
+    final h = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    if (h == null || m == null) return;
+    if (!mounted) return;
+    setState(() => _target = TimeOfDay(hour: h, minute: m));
+  }
+
+  Future<void> _pickTarget() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _target,
+      helpText: 'Countdown ends at',
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _target = picked);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefsKey,
+        '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}');
+  }
+
+  // Resolve _target to the next absolute DateTime: today at HH:MM if it's
+  // still in the future, otherwise tomorrow at HH:MM.
+  DateTime _targetDateTime() {
+    final today = DateTime(_now.year, _now.month, _now.day,
+        _target.hour, _target.minute);
+    if (!today.isAfter(_now)) {
+      return today.add(const Duration(days: 1));
+    }
+    return today;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final total = widget.remaining + widget.done;
+    if (total == 0) return const SizedBox.shrink();
+
+    final target = _targetDateTime();
+    final timeLeft = target.difference(_now);
+    final hLeft = timeLeft.inHours;
+    final mLeft = timeLeft.inMinutes.remainder(60);
+
+    String label;
+    if (widget.remaining == 0) {
+      label = 'All done — ${hLeft}h ${mLeft.toString().padLeft(2, '0')}m left until ${_target.format(context)}';
+    } else {
+      final secsPerTask = timeLeft.inSeconds / widget.remaining;
+      if (secsPerTask >= 3600) {
+        final hPer = (secsPerTask / 3600).floor();
+        label = 'You have ${hLeft}h ${mLeft.toString().padLeft(2, '0')}m '
+            '— ~${hPer}h per task';
+      } else {
+        final mPer = (secsPerTask / 60).round();
+        label = 'You have ${hLeft}h ${mLeft.toString().padLeft(2, '0')}m '
+            '— ~${mPer}min per task';
+      }
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        child: InkWell(
+          onTap: _pickTarget,
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          decoration: BoxDecoration(
+            color: kFrostTint,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.access_time, size: 14, color: kBrown),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                          color: kBrown,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13),
+                    ),
+                  ),
+                  Text(
+                    '${widget.done}/$total',
+                    style: TextStyle(
+                        color: kBrown.withValues(alpha: 0.7),
+                        fontSize: 11),
+                  ),
+                ],
+              ),
+              SizedBox(height: 8),
+              // Bar = today's checklist progress (done / total).
+              // Tick marks divide the bar into one slot per task so each
+              // task is visually represented.
+              LayoutBuilder(builder: (_, c) {
+                final w = c.maxWidth;
+                final pct = total == 0 ? 0.0 : widget.done / total;
+                final filledW = w * pct;
+                return SizedBox(
+                  height: 12,
+                  child: Stack(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: kBrown.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      Container(
+                        width: filledW,
+                        decoration: BoxDecoration(
+                          color: kLeaflitGreen.withValues(alpha: 0.85),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      ...List.generate(total - 1, (i) {
+                        final x = w * ((i + 1) / total);
+                        return Positioned(
+                          left: x,
+                          top: 0,
+                          bottom: 0,
+                          child: Container(
+                            width: 1.5,
+                            color: kBrown.withValues(alpha: 0.55),
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+        ),
+      ),
+    );
+  }
+}
+
 class _DayCallout extends StatelessWidget {
   final int habitsDone;
   final int habitsTotal;
@@ -498,9 +711,8 @@ class _DayCallout extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           decoration: BoxDecoration(
-            color: kFrostTint.withValues(alpha: 0.7),
+            color: kFrostTint,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: color.withValues(alpha: 0.7), width: 1.5),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -516,7 +728,7 @@ class _DayCallout extends StatelessWidget {
                         fontSize: 13),
                   ),
                   Text(
-                    '$habitsDone / $habitsTotal · ${(pct * 100).round()}%',
+                    '$habitsDone / $habitsTotal Â· ${(pct * 100).round()}%',
                     style: TextStyle(
                         color: color,
                         fontWeight: FontWeight.bold,
@@ -524,7 +736,7 @@ class _DayCallout extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               Stack(children: [
                 Container(
                   height: 8,
@@ -554,9 +766,9 @@ class _DayCallout extends StatelessWidget {
 }
 
 // Mood faces + labels live in mood_assets.dart (kMoodColors, kMoodLabels,
-// MoodFace). Mood metric stores 1..5 — matches the image filenames.
+// MoodFace). Mood metric stores 1..5 â€” matches the image filenames.
 
-// ── Metric card ─────────────────────────────────────────────────
+// â”€â”€ Metric card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _MetricCard extends StatelessWidget {
   final TrackableMetric metric;
   final Future<void> Function(double) onSetValue;
@@ -571,6 +783,11 @@ class _MetricCard extends StatelessWidget {
   });
 
   bool get _isMood => metric.name.toLowerCase() == 'mood';
+  // Auto-tracked metrics get bumped by completions, never by user input.
+  bool get _isAutoTracked {
+    final n = metric.name.toLowerCase();
+    return n == 'todos done' || n == 'habits done';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -595,14 +812,9 @@ class _MetricCard extends StatelessWidget {
             child: Container(
               padding: EdgeInsets.all(_isMood ? 8 : 12),
               decoration: BoxDecoration(
-                // Mood card flips to brown only when the value is Meh —
-                // the olive face needs higher contrast. All other moods
-                // (and the empty state) keep the standard yellow frost.
-                color: (_isMood && value != null && value.round() == 3)
-                    ? kMoodFrostBrown.withValues(alpha: 0.55)
-                    : kFrostTint.withValues(alpha: 0.7),
-                border:
-                    Border.all(color: color.withValues(alpha: 0.5), width: 1.5),
+                // Every metric card uses the same opaque yellow now â€”
+                // no Meh-specific brown override, no border.
+                color: kFrostTint,
                 borderRadius: BorderRadius.circular(14),
               ),
               child: _isMood
@@ -634,27 +846,33 @@ class _MetricCard extends StatelessWidget {
                 fontSize: 12,
               ),
             ),
-            const SizedBox(height: 4),
-            if (value != null)
-              Text(
-                _formatValue(value),
-                style: const TextStyle(
-                  color: kBrown,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 22,
-                  fontFamily: 'Montserrat',
+            SizedBox(height: 4),
+            // Centred + auto-sized â€” "1" takes the same space as "1555".
+            Expanded(
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.contain,
+                  child: value != null
+                      ? Text(
+                          _formatValue(value),
+                          style: TextStyle(
+                            color: kBrown,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 36,
+                            fontFamily: 'Montserrat',
+                          ),
+                        )
+                      : Text(
+                          'Tap to log',
+                          style: TextStyle(
+                              color: kBrown.withValues(alpha: 0.4),
+                              fontSize: 13,
+                              fontStyle: FontStyle.italic),
+                        ),
                 ),
-              )
-            else
-              Text(
-                'Tap to log',
-                style: TextStyle(
-                    color: kBrown.withValues(alpha: 0.4),
-                    fontSize: 13,
-                    fontStyle: FontStyle.italic),
               ),
-            const Spacer(),
-            // Just the target/unit caption — no progress bar.
+            ),
+            // Just the target/unit caption â€” no progress bar.
             Text(
               hasTarget
                   ? 'target ${_formatValue(metric.targetValue!)} ${metric.unit}'
@@ -684,14 +902,14 @@ class _MetricCard extends StatelessWidget {
       builder: (ctx) => AlertDialog(
         backgroundColor: kCream,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('How are you feeling?',
+        title: Text('How are you feeling?',
             style: TextStyle(color: kBrown, fontWeight: FontWeight.bold)),
         contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: List.generate(5, (i) {
-              // 5..1 top-to-bottom (Great → Bad).
+              // 5..1 top-to-bottom (Great â†’ Bad).
               final v = 5 - i;
               final selected = existing == v;
               return GestureDetector(
@@ -707,7 +925,7 @@ class _MetricCard extends StatelessWidget {
                         child: Center(
                           child: AnimatedScale(
                             scale: selected ? 1.0 : 0.92,
-                            duration: const Duration(milliseconds: 150),
+                            duration: Duration(milliseconds: 150),
                             child: Opacity(
                               opacity: selected ? 1.0 : 0.85,
                               child: MoodFace(value: v, size: 100),
@@ -715,7 +933,7 @@ class _MetricCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 16),
+                      SizedBox(width: 16),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -760,7 +978,7 @@ class _MetricCard extends StatelessWidget {
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child:
-                const Text('Cancel', style: TextStyle(color: kLeaflitGreen)),
+                Text('Cancel', style: TextStyle(color: kLeaflitGreen)),
           ),
         ],
       ),
@@ -771,6 +989,16 @@ class _MetricCard extends StatelessWidget {
   Future<void> _showInputDialog(BuildContext context) async {
     if (_isMood) {
       await _showMoodPicker(context);
+      return;
+    }
+    if (_isAutoTracked) {
+      // Auto-tracked metrics aren't user-editable â€” they update from
+      // task/habit completions. Quiet snackbar instead of a dialog.
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        backgroundColor: kBrown,
+        duration: Duration(seconds: 2),
+        content: Text('Auto-tracked from completions'),
+      ));
       return;
     }
     final t = today();
@@ -785,16 +1013,16 @@ class _MetricCard extends StatelessWidget {
           children: [
             Expanded(
               child: Text("Log ${metric.name}",
-                  style: const TextStyle(
+                  style: TextStyle(
                       color: kBrown, fontWeight: FontWeight.bold)),
             ),
             // Edit metric (target, name, unit, color, delete).
             IconButton(
               tooltip: 'Edit metric',
-              icon: const Icon(Icons.edit_outlined,
+              icon: Icon(Icons.edit_outlined,
                   color: kBrown, size: 20),
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
+              constraints: BoxConstraints(),
               onPressed: () async {
                 Navigator.pop(ctx);
                 await _showEditDialog(context);
@@ -812,16 +1040,16 @@ class _MetricCard extends StatelessWidget {
           decoration: InputDecoration(
             suffixText: metric.unit,
             labelText: 'Value',
-            labelStyle: const TextStyle(color: kSunsetPetal),
-            focusedBorder: const UnderlineInputBorder(
+            labelStyle: TextStyle(color: kSunsetPetal),
+            focusedBorder: UnderlineInputBorder(
                 borderSide: BorderSide(color: kSunsetPetal)),
           ),
-          style: const TextStyle(color: kBrown),
+          style: TextStyle(color: kBrown),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel',
+            child: Text('Cancel',
                 style: TextStyle(color: kLeaflitGreen)),
           ),
           ElevatedButton(
@@ -833,7 +1061,7 @@ class _MetricCard extends StatelessWidget {
               final v = double.tryParse(ctrl.text);
               Navigator.pop(ctx, v);
             },
-            child: const Text('Save'),
+            child: Text('Save'),
           ),
         ],
       ),
@@ -865,27 +1093,27 @@ class _MetricCard extends StatelessWidget {
           backgroundColor: kCream,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Text('Edit ${metric.name}',
-              style: const TextStyle(color: kBrown, fontWeight: FontWeight.bold)),
+              style: TextStyle(color: kBrown, fontWeight: FontWeight.bold)),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
                   controller: nameCtrl,
-                  style: const TextStyle(color: kBrown),
-                  decoration: const InputDecoration(
+                  style: TextStyle(color: kBrown),
+                  decoration: InputDecoration(
                       labelText: 'Name',
                       labelStyle: TextStyle(color: kSunsetPetal)),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 TextField(
                   controller: unitCtrl,
-                  style: const TextStyle(color: kBrown),
-                  decoration: const InputDecoration(
+                  style: TextStyle(color: kBrown),
+                  decoration: InputDecoration(
                       labelText: 'Unit',
                       labelStyle: TextStyle(color: kSunsetPetal)),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 TextField(
                   controller: targetCtrl,
                   keyboardType:
@@ -893,12 +1121,12 @@ class _MetricCard extends StatelessWidget {
                   inputFormatters: [
                     FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                   ],
-                  style: const TextStyle(color: kBrown),
-                  decoration: const InputDecoration(
+                  style: TextStyle(color: kBrown),
+                  decoration: InputDecoration(
                       labelText: 'Target value (optional)',
                       labelStyle: TextStyle(color: kSunsetPetal)),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
                   children: List.generate(palette.length, (i) {
@@ -926,12 +1154,12 @@ class _MetricCard extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, 'delete'),
-              child: const Text('Delete',
+              child: Text('Delete',
                   style: TextStyle(color: kSunsetPetal)),
             ),
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel',
+              child: Text('Cancel',
                   style: TextStyle(color: kLeaflitGreen)),
             ),
             ElevatedButton(
@@ -940,7 +1168,7 @@ class _MetricCard extends StatelessWidget {
                 foregroundColor: Colors.white,
               ),
               onPressed: () => Navigator.pop(ctx, 'save'),
-              child: const Text('Save'),
+              child: Text('Save'),
             ),
           ],
         ),
@@ -963,7 +1191,7 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
-// ── Add metric card ─────────────────────────────────────────────
+// â”€â”€ Add metric card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _AddMetricCard extends StatelessWidget {
   final Future<void> Function(TrackableMetric m) onAddMetric;
   const _AddMetricCard({required this.onAddMetric});
@@ -988,7 +1216,7 @@ class _AddMetricCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(Icons.add, color: kBrown.withValues(alpha: 0.5)),
-              const SizedBox(height: 4),
+              SizedBox(height: 4),
               Text('Add metric',
                   style: TextStyle(
                       color: kBrown.withValues(alpha: 0.6), fontSize: 11)),
@@ -1020,7 +1248,7 @@ class _AddMetricCard extends StatelessWidget {
           backgroundColor: kCream,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text('New metric',
+          title: Text('New metric',
               style:
                   TextStyle(color: kBrown, fontWeight: FontWeight.bold)),
           content: SingleChildScrollView(
@@ -1030,32 +1258,32 @@ class _AddMetricCard extends StatelessWidget {
                 TextField(
                   controller: nameCtrl,
                   autofocus: true,
-                  style: const TextStyle(color: kBrown),
-                  decoration: const InputDecoration(
+                  style: TextStyle(color: kBrown),
+                  decoration: InputDecoration(
                       labelText: 'Name (e.g. Sleep, Steps)',
                       labelStyle: TextStyle(color: kSunsetPetal)),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 TextField(
                   controller: unitCtrl,
-                  style: const TextStyle(color: kBrown),
-                  decoration: const InputDecoration(
-                      labelText: 'Unit (kg, L, hrs…)',
+                  style: TextStyle(color: kBrown),
+                  decoration: InputDecoration(
+                      labelText: 'Unit (kg, L, hrsâ€¦)',
                       labelStyle: TextStyle(color: kSunsetPetal)),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 TextField(
                   controller: targetCtrl,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   inputFormatters: [
                     FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                   ],
-                  style: const TextStyle(color: kBrown),
-                  decoration: const InputDecoration(
+                  style: TextStyle(color: kBrown),
+                  decoration: InputDecoration(
                       labelText: 'Target value (optional)',
                       labelStyle: TextStyle(color: kSunsetPetal)),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
                   children: List.generate(palette.length, (i) {
@@ -1083,7 +1311,7 @@ class _AddMetricCard extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel',
+              child: Text('Cancel',
                   style: TextStyle(color: kLeaflitGreen)),
             ),
             ElevatedButton(
@@ -1102,7 +1330,7 @@ class _AddMetricCard extends StatelessWidget {
                 );
                 Navigator.pop(ctx, m);
               },
-              child: const Text('Add'),
+              child: Text('Add'),
             ),
           ],
         ),
@@ -1117,7 +1345,7 @@ class _AddMetricCard extends StatelessWidget {
   }
 }
 
-// ── Task card ───────────────────────────────────────────────────
+// â”€â”€ Task card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _TaskCard extends StatelessWidget {
   final TodoItem todo;
   final VoidCallback onToggle;
@@ -1125,6 +1353,8 @@ class _TaskCard extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onDuplicate;
   final VoidCallback onOpenReorder;
+  final VoidCallback? onFail;
+  final VoidCallback? onReschedule;
 
   const _TaskCard({
     required this.todo,
@@ -1133,6 +1363,8 @@ class _TaskCard extends StatelessWidget {
     required this.onDelete,
     required this.onDuplicate,
     required this.onOpenReorder,
+    this.onFail,
+    this.onReschedule,
   });
 
   @override
@@ -1150,14 +1382,14 @@ class _TaskCard extends StatelessWidget {
         child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         // BackdropFilter sits OUTSIDE the Slidable so the page gradient
-        // is what gets blurred — the action panes (which appear on swipe)
+        // is what gets blurred â€” the action panes (which appear on swipe)
         // render as solid color blocks on top of the frosted card area.
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
           child: Slidable(
             key: ValueKey(todo.id),
             startActionPane: ActionPane(
-              motion: const DrawerMotion(),
+              motion: DrawerMotion(),
               extentRatio: 0.4,
               children: [
                 SlidableAction(
@@ -1179,9 +1411,17 @@ class _TaskCard extends StatelessWidget {
               ],
             ),
             endActionPane: ActionPane(
-              motion: const DrawerMotion(),
-              extentRatio: 0.2,
+              motion: DrawerMotion(),
+              extentRatio: onReschedule != null ? 0.4 : 0.2,
               children: [
+                if (onReschedule != null)
+                  SlidableAction(
+                    onPressed: (_) => onReschedule!(),
+                    backgroundColor: kGoldenPollen,
+                    foregroundColor: kBrown,
+                    icon: Icons.event,
+                    label: 'Reschedule',
+                  ),
                 SlidableAction(
                   onPressed: (_) => onDelete(),
                   backgroundColor: kSunsetPetal,
@@ -1195,7 +1435,7 @@ class _TaskCard extends StatelessWidget {
             ),
             child: Container(
               decoration: BoxDecoration(
-                color: kFrostTint.withValues(alpha: 0.7),
+                color: kFrostTint,
               ),
               child: ListTile(
                 onTap: onTap,
@@ -1203,12 +1443,21 @@ class _TaskCard extends StatelessWidget {
                   value: todo.done,
                   activeColor: kLeaflitGreen,
                   checkColor: Colors.white,
-                  side: const BorderSide(color: kSunsetPetal),
+                  side: BorderSide(color: kSunsetPetal),
                   onChanged: (_) => onToggle(),
                 ),
+                trailing: onFail == null
+                    ? null
+                    : IconButton(
+                        tooltip: 'Skip â€” push to tomorrow',
+                        icon: Icon(Icons.close,
+                            color: kSunsetPetal, size: 20),
+                        visualDensity: VisualDensity.compact,
+                        onPressed: onFail,
+                      ),
                 title: Row(children: [
                   Icon(Icons.flag, size: 14, color: kPriorityColors[todo.priority]),
-                  const SizedBox(width: 6),
+                  SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       todo.title,
@@ -1222,14 +1471,14 @@ class _TaskCard extends StatelessWidget {
                 subtitle: Row(children: [
                   Text(
                     kPriorityLabels[todo.priority],
-                    style: const TextStyle(color: kEveningSky, fontSize: 11),
+                    style: TextStyle(color: kEveningSky, fontSize: 11),
                   ),
                   if (dueLabel != null) ...[
-                    const SizedBox(width: 6),
+                    SizedBox(width: 6),
                     Icon(Icons.event,
                         size: 11,
                         color: overdue ? kSunsetPetal : kEveningSky),
-                    const SizedBox(width: 3),
+                    SizedBox(width: 3),
                     Text(
                       dueLabel,
                       style: TextStyle(
@@ -1270,7 +1519,7 @@ String? _taskDueLabel(TodoItem t) {
   return 'Due ${months[due.month - 1]} ${due.day}';
 }
 
-// ── Habit check card (Todo tab) ─────────────────────────────────
+// â”€â”€ Habit check card (Todo tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _HabitCheckCard extends StatelessWidget {
   final TodoItem todo;
   final VoidCallback onComplete;
@@ -1278,6 +1527,7 @@ class _HabitCheckCard extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onDuplicate;
   final VoidCallback onOpenReorder;
+  final VoidCallback? onFail;
 
   const _HabitCheckCard({
     required this.todo,
@@ -1286,6 +1536,7 @@ class _HabitCheckCard extends StatelessWidget {
     required this.onDelete,
     required this.onDuplicate,
     required this.onOpenReorder,
+    this.onFail,
   });
 
   @override
@@ -1312,7 +1563,7 @@ class _HabitCheckCard extends StatelessWidget {
           child: Slidable(
             key: ValueKey('habit_${todo.id}'),
             startActionPane: ActionPane(
-              motion: const DrawerMotion(),
+              motion: DrawerMotion(),
               extentRatio: 0.4,
               children: [
                 SlidableAction(
@@ -1334,7 +1585,7 @@ class _HabitCheckCard extends StatelessWidget {
               ],
             ),
             endActionPane: ActionPane(
-              motion: const DrawerMotion(),
+              motion: DrawerMotion(),
               extentRatio: 0.2,
               children: [
                 SlidableAction(
@@ -1352,7 +1603,7 @@ class _HabitCheckCard extends StatelessWidget {
               decoration: BoxDecoration(
                 // Habit cards lean on the habit's chosen colour as a
                 // wash; no outline.
-                color: Color(todo.colorValue).withValues(alpha: 0.4),
+                color: kFrostTint,
               ),
               child: ListTile(
                 onTap: onTap,
@@ -1360,17 +1611,26 @@ class _HabitCheckCard extends StatelessWidget {
                   value: false,
                   activeColor: kLeaflitGreen,
                   checkColor: Colors.white,
-                  side: const BorderSide(color: kLeaflitGreen),
+                  side: BorderSide(color: kLeaflitGreen),
                   onChanged: (_) => onComplete(),
                 ),
+                trailing: onFail == null
+                    ? null
+                    : IconButton(
+                        tooltip: 'Skip â€” push to tomorrow',
+                        icon: Icon(Icons.close,
+                            color: kSunsetPetal, size: 20),
+                        visualDensity: VisualDensity.compact,
+                        onPressed: onFail,
+                      ),
                 title: Row(children: [
-                  Icon(Icons.flag, size: 14, color: kPriorityColors[todo.priority]),
-                  const SizedBox(width: 6),
+                  Icon(Icons.flag,
+                      size: 14, color: kPriorityColors[todo.priority]),
+                  SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       todo.title,
-                      style: const TextStyle(
-                        // Title carries the visual weight now.
+                      style: TextStyle(
                         color: kBrown,
                         fontWeight: FontWeight.bold,
                       ),
@@ -1379,7 +1639,7 @@ class _HabitCheckCard extends StatelessWidget {
                 ]),
                 subtitle: Row(children: [
                   Icon(Icons.repeat, size: 11, color: accent),
-                  const SizedBox(width: 4),
+                  SizedBox(width: 4),
                   Text(
                     todo.intervalDays == 1
                         ? 'Daily'
@@ -1393,7 +1653,7 @@ class _HabitCheckCard extends StatelessWidget {
                     ),
                   ),
                   if (delayed) ...[
-                    const SizedBox(width: 6),
+                    SizedBox(width: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 6, vertical: 1),
@@ -1403,7 +1663,7 @@ class _HabitCheckCard extends StatelessWidget {
                         border: Border.all(
                             color: kSunsetPetal.withValues(alpha: 0.5)),
                       ),
-                      child: const Text(
+                      child: Text(
                         'Delayed',
                         style: TextStyle(
                           color: kSunsetPetal,
@@ -1424,7 +1684,7 @@ class _HabitCheckCard extends StatelessWidget {
   }
 }
 
-// ── Done section (Todo tab) ─────────────────────────────────────
+// â”€â”€ Done section (Todo tab) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _DoneSection extends StatelessWidget {
   final List<TodoItem> done;
   final Future<void> Function() onClearDone;
@@ -1454,16 +1714,16 @@ class _DoneSection extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Done today · ${done.length}',
-                  style: const TextStyle(
+              Text('Done today Â· ${done.length}',
+                  style: TextStyle(
                       color: kLeaflitGreen,
                       fontWeight: FontWeight.bold,
                       fontSize: 13)),
               TextButton.icon(
                 onPressed: onClearDone,
-                icon: const Icon(Icons.delete_sweep_outlined,
+                icon: Icon(Icons.delete_sweep_outlined,
                     size: 16, color: kSunsetPetal),
-                label: const Text('Clear all',
+                label: Text('Clear all',
                     style:
                         TextStyle(color: kSunsetPetal, fontSize: 12)),
                 style: TextButton.styleFrom(
@@ -1473,7 +1733,7 @@ class _DoneSection extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           ...done.map((t) => _TaskCard(
                 todo: t,
                 onToggle: () => onToggle(t),
@@ -1481,6 +1741,9 @@ class _DoneSection extends StatelessWidget {
                 onDelete: () => onDelete(t.id!),
                 onDuplicate: () {},
                 onOpenReorder: () {},
+                // Done tasks don't need the X / reschedule affordances.
+                onFail: null,
+                onReschedule: null,
               )),
         ],
       ),

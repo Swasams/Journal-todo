@@ -23,7 +23,7 @@ class TodoItem {
     this.nextDue,
     this.completionCount = 0,
     this.order = 0,
-    this.colorValue = 0xFFF4C49A, // kRosebudBlush default
+    this.colorValue = 0xFFEFEAE0, // off-white default
   });
 
   Map<String, dynamic> toMap() => {
@@ -49,6 +49,6 @@ class TodoItem {
     nextDue: map['next_due'],
     completionCount: map['completion_count'] ?? 0,
     order: map['order'] ?? 0,
-    colorValue: map['color_value'] ?? 0xFFF4C49A,
+    colorValue: map['color_value'] ?? 0xFFEFEAE0,
   );
 }

@@ -1,10 +1,10 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../models/todo_item.dart';
 import 'todo_theme.dart';
 
-// `_Phase.after` retired — once a task is finished (or time runs out and
+// `_Phase.after` retired â€” once a task is finished (or time runs out and
 // the user confirms it's done) we shuffle and drop straight back to
 // setup so the next round starts naturally.
 enum _Phase { setup, running, timeUp }
@@ -24,12 +24,14 @@ class FocusTimer extends StatefulWidget {
 }
 
 class _FocusTimerState extends State<FocusTimer> {
-  static const _minDuration = Duration(minutes: 15);
-  static const _maxDuration = Duration(hours: 3);
+  static const _minDuration = Duration(minutes: 1);
+  static const _maxDuration = Duration(hours: 8);
 
   _Phase _phase = _Phase.setup;
-  Duration _duration = const Duration(minutes: 30);
+  Duration _duration = Duration(minutes: 30);
   Duration _remaining = Duration.zero;
+  // User-editable step value used by the âˆ’/+ buttons.
+  int _stepMinutes = 15;
   TodoItem? _task;
   Timer? _ticker;
   final _rng = Random();
@@ -48,13 +50,52 @@ class _FocusTimerState extends State<FocusTimer> {
     super.dispose();
   }
 
-  // ── State transitions ────────────────────────────────────────
+  // â”€â”€ State transitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   void _addMinutes(int delta) {
     final next = _duration + Duration(minutes: delta);
     if (next < _minDuration) return;
     if (next > _maxDuration) return;
     setState(() => _duration = next);
+  }
+
+  Future<void> _editStep() async {
+    final ctrl = TextEditingController(text: '$_stepMinutes');
+    final result = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: kCream,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Step size',
+            style: TextStyle(color: kBrown, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          style: TextStyle(color: kBrown),
+          decoration: InputDecoration(
+            labelText: 'Minutes per +/âˆ’ tap',
+            labelStyle: TextStyle(color: kSunsetPetal),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child:
+                Text('Cancel', style: TextStyle(color: kLeaflitGreen)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: kSunsetPetal, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, int.tryParse(ctrl.text)),
+            child: Text('Save'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (result == null || result <= 0) return;
+    setState(() => _stepMinutes = result.clamp(1, 120));
   }
 
   void _shuffleTask() {
@@ -76,15 +117,15 @@ class _FocusTimerState extends State<FocusTimer> {
       _remaining = _duration;
       _phase = _Phase.running;
     });
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_remaining <= const Duration(seconds: 1)) {
+    _ticker = Timer.periodic(Duration(seconds: 1), (_) {
+      if (_remaining <= Duration(seconds: 1)) {
         _ticker?.cancel();
         setState(() {
           _remaining = Duration.zero;
           _phase = _Phase.timeUp;
         });
       } else {
-        setState(() => _remaining -= const Duration(seconds: 1));
+        setState(() => _remaining -= Duration(seconds: 1));
       }
     });
   }
@@ -104,14 +145,14 @@ class _FocusTimerState extends State<FocusTimer> {
     setState(() => _phase = _Phase.setup);
   }
 
-  // ⚠️ DEV ONLY — fast-forward the running timer to fire timeUp on the
+  // âš ï¸ DEV ONLY â€” fast-forward the running timer to fire timeUp on the
   // next tick. Remove with the rest of the dev affordances before release.
   void _devSkipToTimeUp() {
     if (_phase != _Phase.running) return;
-    setState(() => _remaining = const Duration(seconds: 1));
+    setState(() => _remaining = Duration(seconds: 1));
   }
 
-  // ── Helpers ──────────────────────────────────────────────────
+  // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   String _fmt(Duration d) {
     final h = d.inHours;
@@ -121,14 +162,14 @@ class _FocusTimerState extends State<FocusTimer> {
     return '$m:$s';
   }
 
-  // ── Build ─────────────────────────────────────────────────────
+  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Container(
-        decoration: const BoxDecoration(gradient: kMorningGradient),
+        decoration: BoxDecoration(gradient: kMorningGradient),
         child: SafeArea(
           child: switch (_phase) {
             _Phase.setup => _buildSetup(),
@@ -149,21 +190,21 @@ class _FocusTimerState extends State<FocusTimer> {
           Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.close, color: kBrown),
+                icon: Icon(Icons.close, color: kBrown),
                 onPressed: () => Navigator.of(context).pop(),
               ),
-              const Spacer(),
+              Spacer(),
             ],
           ),
-          const Spacer(),
-          const Text('Focus timer',
+          Spacer(),
+          Text('Focus timer',
               style: TextStyle(
                 color: kBrown,
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
               )),
-          const SizedBox(height: 8),
-          // Show the pre-picked task — user can shuffle below.
+          SizedBox(height: 8),
+          // Show the pre-picked task â€” user can shuffle below.
           if (empty)
             Text(
               'Nothing to focus on right now.',
@@ -179,13 +220,13 @@ class _FocusTimerState extends State<FocusTimer> {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: 6),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Text(
                 _task?.title ?? '',
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   color: kBrown,
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
@@ -193,10 +234,10 @@ class _FocusTimerState extends State<FocusTimer> {
               ),
             ),
           ],
-          const SizedBox(height: 32),
+          SizedBox(height: 32),
           Text(
             _fmt(_duration),
-            style: const TextStyle(
+            style: TextStyle(
               color: kBrown,
               fontSize: 64,
               fontWeight: FontWeight.bold,
@@ -204,30 +245,33 @@ class _FocusTimerState extends State<FocusTimer> {
               letterSpacing: 2,
             ),
           ),
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               _StepButton(
-                label: '−15 min',
+                label: 'âˆ’$_stepMinutes min',
                 onTap: _duration <= _minDuration
                     ? null
-                    : () => _addMinutes(-15),
+                    : () => _addMinutes(-_stepMinutes),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: 8),
+              _StepButton(label: 'Custom', onTap: _editStep),
+              SizedBox(width: 8),
               _StepButton(
-                label: '+15 min',
+                label: '+$_stepMinutes min',
                 onTap: _duration >= _maxDuration
                     ? null
-                    : () => _addMinutes(15),
+                    : () => _addMinutes(_stepMinutes),
               ),
             ],
           ),
-          const SizedBox(height: 28),
+          SizedBox(height: 28),
           ElevatedButton.icon(
             onPressed: empty ? null : _start,
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('Start',
+            icon: Icon(Icons.play_arrow),
+            label: Text('Start',
                 style: TextStyle(
                     fontWeight: FontWeight.bold, fontSize: 16)),
             style: ElevatedButton.styleFrom(
@@ -239,15 +283,15 @@ class _FocusTimerState extends State<FocusTimer> {
                   borderRadius: BorderRadius.circular(12)),
             ),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           if (!empty && widget.pendingTasks.length > 1)
             TextButton.icon(
               onPressed: _shuffleTask,
-              icon: const Icon(Icons.shuffle, size: 18),
-              label: const Text('Shuffle task'),
+              icon: Icon(Icons.shuffle, size: 18),
+              label: Text('Shuffle task'),
               style: TextButton.styleFrom(foregroundColor: kBrown),
             ),
-          const Spacer(),
+          Spacer(),
         ],
       ),
     );
@@ -266,14 +310,14 @@ class _FocusTimerState extends State<FocusTimer> {
           Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.close, color: kBrown),
+                icon: Icon(Icons.close, color: kBrown),
                 onPressed: () {
                   _ticker?.cancel();
                   Navigator.of(context).pop();
                 },
               ),
-              const Spacer(),
-              // ⚠️ DEV — fast-forward to time-up for testing.
+              Spacer(),
+              // âš ï¸ DEV â€” fast-forward to time-up for testing.
               IconButton(
                 tooltip: 'DEV: skip to time-up',
                 icon: Icon(Icons.fast_forward,
@@ -282,7 +326,7 @@ class _FocusTimerState extends State<FocusTimer> {
               ),
             ],
           ),
-          const Spacer(),
+          Spacer(),
           Text(
             'Focus on',
             style: TextStyle(
@@ -293,20 +337,20 @@ class _FocusTimerState extends State<FocusTimer> {
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: 6),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Text(
               task.title,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 color: kBrown,
                 fontSize: 26,
                 fontWeight: FontWeight.bold,
               ),
             ),
           ),
-          const SizedBox(height: 36),
+          SizedBox(height: 36),
           // Circular progress ring with countdown text
           SizedBox(
             width: 220,
@@ -327,7 +371,7 @@ class _FocusTimerState extends State<FocusTimer> {
                 ),
                 Text(
                   _fmt(_remaining),
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: kBrown,
                     fontSize: 44,
                     fontWeight: FontWeight.bold,
@@ -338,11 +382,11 @@ class _FocusTimerState extends State<FocusTimer> {
               ],
             ),
           ),
-          const Spacer(),
+          Spacer(),
           ElevatedButton.icon(
             onPressed: _markCompleted,
-            icon: const Icon(Icons.check),
-            label: const Text('Completed',
+            icon: Icon(Icons.check),
+            label: Text('Completed',
                 style: TextStyle(
                     fontWeight: FontWeight.bold, fontSize: 16)),
             style: ElevatedButton.styleFrom(
@@ -354,7 +398,7 @@ class _FocusTimerState extends State<FocusTimer> {
                   borderRadius: BorderRadius.circular(12)),
             ),
           ),
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
         ],
       ),
     );
@@ -366,34 +410,34 @@ class _FocusTimerState extends State<FocusTimer> {
       padding: const EdgeInsets.all(24),
       child: Column(
         children: [
-          const Spacer(),
+          Spacer(),
           Text(
-            "⏰  Time's up",
+            "â°  Time's up",
             style: TextStyle(
               color: kBrown,
               fontSize: 28,
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 18),
+          SizedBox(height: 18),
           Text(
             'Did you finish:',
             style: TextStyle(color: kBrown.withValues(alpha: 0.6)),
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: 6),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Text(
               '"${task.title}"',
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 color: kBrown,
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
               ),
             ),
           ),
-          const Spacer(),
+          Spacer(),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -401,17 +445,17 @@ class _FocusTimerState extends State<FocusTimer> {
                 onPressed: () => _resolveTimeUp(false),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: kSunsetPetal,
-                  side: const BorderSide(color: kSunsetPetal),
+                  side: BorderSide(color: kSunsetPetal),
                   padding: const EdgeInsets.symmetric(
                       horizontal: 28, vertical: 14),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                 ),
-                child: const Text('Not yet',
+                child: Text('Not yet',
                     style: TextStyle(
                         fontWeight: FontWeight.bold, fontSize: 15)),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: 12),
               ElevatedButton(
                 onPressed: () => _resolveTimeUp(true),
                 style: ElevatedButton.styleFrom(
@@ -422,13 +466,13 @@ class _FocusTimerState extends State<FocusTimer> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                 ),
-                child: const Text('Finished it',
+                child: Text('Finished it',
                     style: TextStyle(
                         fontWeight: FontWeight.bold, fontSize: 15)),
               ),
             ],
           ),
-          const Spacer(),
+          Spacer(),
         ],
       ),
     );
@@ -449,7 +493,7 @@ class _StepButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         decoration: BoxDecoration(
-          color: kFrostTint.withValues(alpha: 0.55),
+          color: kFrostTint,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: disabled

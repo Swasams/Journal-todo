@@ -5,39 +5,61 @@ import '../../models/todo_item.dart';
 const kSunsetPetal  = Color(0xFFD94F3A);
 const kGoldenPollen = Color(0xFFF4A444);
 const kEveningSky   = Color(0xFFE8873A);
+// Morning gradient's top color — kept as its own constant so the AppBar
+// and TabBar can match the gradient's top stop without dragging the
+// priority/habit palette uses of kSunsetPetal along with it.
+const kMorningTop   = Color(0xFFA8324F);
 const kLeaflitGreen = Color(0xFF5D7B3D);
 const kRosebudBlush = Color(0xFFF4C49A);
 const kCream        = Color(0xFFFDF5E0);
 // Darker brown for body text on todo/habits pages — more contrast against
 // the warm gradient.
-const kBrown        = Color(0xFF3E1F0C);
+const kBrown = Color(0xFF3E1F0C);
 
-// Warm yellow base used as the frosted-glass tint on the morning pages.
-// NEVER use pure white for backgrounds — this is the substitute. The
-// yellow leans away from the gradient's red/orange/amber so cards read
-// distinctly instead of blending. Mix in alpha at the call site
-// (typical 0.5–0.75).
-const kFrostTint = Color(0xFFF5DC8B);
+// Cream-yellow base used as the frosted-glass tint on the morning pages.
+// NEVER use pure white for backgrounds — this is the substitute. Alpha
+// (0xC4 ≈ 0.77) is embedded in the color itself so call sites use
+// `kFrostTint` directly without `.withValues(alpha: ...)`.
+const kFrostTint = Color(0xC4FFEEC4);
 
-// Morning sky gradient — top mirrors the AppBar (sunset red) and the
-// bottom matches the home-screen warm half (golden amber). When the page
-// scrolls past the gradient stops, the bottom amber stays painted —
-// never a flat washed-out cream.
+// Morning sky gradient — burnt orange at the top fades through a
+// transition crimson down into the deep purplish-red at the bottom. The
+// AppBar (kMorningTop) now sits on top of the orange end so the whole
+// top half of the screen reads warm. When the page scrolls past the
+// gradient stops, the bottom purplish red stays painted — never a flat
+// washed-out cream.
 const kMorningGradient = LinearGradient(
   begin: Alignment.topCenter,
   end: Alignment.bottomCenter,
   colors: [
-    Color(0xFFD94F3A), // sunset red (under the AppBar)
-    Color(0xFFE8753A), // burnt orange
-    Color(0xFFF4A444), // golden amber (matches home-screen gradient bottom)
+    Color(0xFFE8753A),  // burnt orange (top — meets the AppBar)
+    Color(0xFFC4453F),  // transition crimson
+    kMorningTop,        // deep purplish red (bottom)
   ],
-  stops: [0.0, 0.45, 1.0],
+  stops: [0.0, 0.5, 1.0],
 );
 
 // Empty shadow list — drop shadows turned off across the app. Kept as a
 // shared constant so the wrapping `DecoratedBox` structure on each card
 // stays untouched; flip a tint back in here to re-enable globally.
 const kFrostShadow = <BoxShadow>[];
+
+// Off-white used as the default habit colour and as the high-contrast
+// text colour when the habit's chosen colour is too dark for kBrown.
+const kOffWhite = Color(0xFFEFEAE0);
+
+// Returns true when the colour is dark enough that brown text becomes
+// unreadable on top of it. Caller should swap to off-white text.
+bool isDarkColor(Color c) {
+  final r = c.r;
+  final g = c.g;
+  final b = c.b;
+  final luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+  return luminance < 0.55;
+}
+
+// Pick brown or off-white text depending on the background colour.
+Color textOn(Color bg) => isDarkColor(bg) ? kOffWhite : kBrown;
 
 // Saturated dark gold reserved for the Today's-Habit-Score Meh accent
 // only — the regular `kMoodColors[2]` olive disappeared on the warm

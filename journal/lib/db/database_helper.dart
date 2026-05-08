@@ -265,6 +265,52 @@ class DatabaseHelper {
       await prefs.setBool(weightColorKey, true);
     }
 
+    // Additive seed: ensure the auto-tracked "Todos Done" metric exists
+    // once. The user can't input to it directly — it's bumped by every
+    // task tick.
+    const todosDoneKey = 'metrics_seeded_todos_done_v1';
+    if (!(prefs.getBool(todosDoneKey) ?? false)) {
+      if (!existing.any((m) => m.name.toLowerCase() == 'todos done')) {
+        existing.add(TrackableMetric(
+          id: DateTime.now().millisecondsSinceEpoch + 7,
+          name: 'Todos Done',
+          unit: '',
+          targetValue: null,
+          colorValue: 0xFFD94F3A, // sunset red
+        ));
+        changed = true;
+      }
+      await prefs.setBool(todosDoneKey, true);
+    }
+
+    // One-shot recolour of Mood → pink (was amber on early seeds).
+    const moodColorKey = 'metrics_mood_recolored_pink_v1';
+    if (!(prefs.getBool(moodColorKey) ?? false)) {
+      for (final m in existing) {
+        if (m.name.toLowerCase() == 'mood') {
+          m.colorValue = 0xFFE91E48;
+          changed = true;
+        }
+      }
+      await prefs.setBool(moodColorKey, true);
+    }
+
+    // Sibling auto-tracked metric — counts habit completions.
+    const habitsDoneKey = 'metrics_seeded_habits_done_v1';
+    if (!(prefs.getBool(habitsDoneKey) ?? false)) {
+      if (!existing.any((m) => m.name.toLowerCase() == 'habits done')) {
+        existing.add(TrackableMetric(
+          id: DateTime.now().millisecondsSinceEpoch + 8,
+          name: 'Habits Done',
+          unit: '',
+          targetValue: null,
+          colorValue: 0xFF5D7B3D, // leaflit green
+        ));
+        changed = true;
+      }
+      await prefs.setBool(habitsDoneKey, true);
+    }
+
     if (changed) {
       await prefs.setString(
           'metrics', jsonEncode(existing.map((m) => m.toMap()).toList()));
@@ -370,7 +416,7 @@ class DatabaseHelper {
         name: 'Mood',
         unit: '/5',
         targetValue: 4,
-        colorValue: 0xFFF4A444, // golden amber
+        colorValue: 0xFFE91E48, // pink — pulls from the Great mood face
       ),
       TrackableMetric(
         id: base + 2,

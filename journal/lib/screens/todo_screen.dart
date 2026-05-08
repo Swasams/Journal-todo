@@ -1,10 +1,12 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../db/database_helper.dart';
 import '../models/todo_item.dart';
 import '../models/trackable_metric.dart';
 import 'todo/todo_theme.dart';
 import 'todo/todo_tab.dart';
+import 'todo/todo_list_tab.dart';
 import 'todo/habits_tab.dart';
 import 'todo/stats_tab.dart';
 import 'todo/focus_timer.dart';
@@ -25,7 +27,7 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _loadAll().then((_) => _checkDayRollover());
   }
 
@@ -46,7 +48,7 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
     });
   }
 
-  // ── Day rollover ──────────────────────────────────────────────
+  // â”€â”€ Day rollover â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<void> _checkDayRollover() async {
     final lastOpen = await DatabaseHelper.getLastOpenDate();
@@ -70,7 +72,7 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
   }
 
   // Snap habit nextDue forward when it falls outside the delay window.
-  // - Daily habits: any past nextDue → today.
+  // - Daily habits: any past nextDue â†’ today.
   // - Non-daily: if (today - nextDue) >= intervalDays, the missed instance
   //   is dropped and a fresh one is treated as due today.
   Future<void> _snapHabitDueDates() async {
@@ -96,13 +98,13 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
       builder: (_) => AlertDialog(
         backgroundColor: kCream,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Yesterday\'s wrap-up',
+        title: Text('Yesterday\'s wrap-up',
             style: TextStyle(color: kBrown, fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('$count',
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 56, fontWeight: FontWeight.bold, color: kLeaflitGreen)),
             Text('task${count == 1 ? '' : 's'} completed on $date',
                 style: TextStyle(color: kBrown.withValues(alpha: 0.6))),
@@ -113,26 +115,43 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
             style: ElevatedButton.styleFrom(
                 backgroundColor: kSunsetPetal, foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(context),
-            child: const Text('Nice!'),
+            child: Text('Nice!'),
           ),
         ],
       ),
     );
   }
 
-  // ── Todo / habit mutations ───────────────────────────────────
+  // â”€â”€ Todo / habit mutations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  // Bumps an auto-tracked metric (matched by name, case-insensitive)
+  // by `delta` for today. Negative deltas decrement; clamped to >= 0.
+  Future<void> _bumpAutoMetric(String name, int delta) async {
+    final lc = name.toLowerCase();
+    for (final m in _metrics) {
+      if (m.name.toLowerCase() != lc) continue;
+      final cur = m.history[today()] ?? 0.0;
+      final next = (cur + delta).clamp(0, 9999).toDouble();
+      await DatabaseHelper.setMetricValue(m.id!, today(), next);
+      return;
+    }
+  }
 
   Future<void> _toggleDone(TodoItem t) async {
+    final wasDone = t.done;
     t.done = !t.done;
     if (t.done) {
       await DatabaseHelper.incrementDailyStat(today(), 1);
+      await _bumpAutoMetric('Todos Done', 1);
+    } else if (wasDone) {
+      await _bumpAutoMetric('Todos Done', -1);
     }
     await DatabaseHelper.updateTodo(t);
     await _loadAll();
   }
 
   Future<void> _completeHabit(TodoItem t) async {
-    // Always advance from today — so a delayed every-2-days habit completed
+    // Always advance from today â€” so a delayed every-2-days habit completed
     // today shows up again two days from now, not two days from the missed
     // due date.
     final from = parseDate(today());
@@ -140,6 +159,7 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
     t.completionCount++;
     await DatabaseHelper.recordHabitCompletion(t.id!, today());
     await DatabaseHelper.incrementDailyStat(today(), 1);
+    await _bumpAutoMetric('Habits Done', 1);
     await DatabaseHelper.updateTodo(t);
     await _loadAll();
   }
@@ -170,6 +190,25 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
     await _loadAll();
   }
 
+  // Skip an item â€” pushes it to tomorrow without recording a completion.
+  // Daily habit X'd â†’ instance dropped, next instance is tomorrow.
+  // Non-daily habit X'd â†’ next instance moved to tomorrow.
+  // Task X'd â†’ due date moved to tomorrow.
+  Future<void> _failItem(TodoItem t) async {
+    final tomorrow = DateTime.now().add(Duration(days: 1));
+    t.nextDue = formatDate(tomorrow);
+    await DatabaseHelper.updateTodo(t);
+    await _loadAll();
+  }
+
+  // Reschedule a task to a specific date (or clear it). Only used for
+  // tasks â€” habits manage their own nextDue via interval logic.
+  Future<void> _rescheduleItem(TodoItem t, DateTime? newDate) async {
+    t.nextDue = newDate != null ? formatDate(newDate) : null;
+    await DatabaseHelper.updateTodo(t);
+    await _loadAll();
+  }
+
   // Persist a new order for the checklist. The caller has already
   // validated that priorities are still non-decreasing.
   Future<void> _reorderChecklist(List<TodoItem> reordered) async {
@@ -187,7 +226,7 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
     await _loadAll();
   }
 
-  // ── Metric mutations ─────────────────────────────────────────
+  // â”€â”€ Metric mutations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<void> _setMetricValue(int metricId, double value) async {
     await DatabaseHelper.setMetricValue(metricId, today(), value);
@@ -209,16 +248,17 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
     await _loadAll();
   }
 
-  // ── Add / edit dialogs ───────────────────────────────────────
+  // â”€â”€ Add / edit dialogs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<void> _showAddDialog() async {
-    final isHabitsTab = _tabController.index == 1;
+    // Habits tab is now index 2 (Today=0, Todo=1, Habits=2, Stats=3).
+    final isHabitsTab = _tabController.index == 2;
     final titleCtrl = TextEditingController();
     final intervalCtrl = TextEditingController(text: '1');
     int selectedPriority = 1;
     bool isHabit = isHabitsTab;
     int selectedColor = kHabitColorPalette.first;
-    // New tasks default to a today due date — user can clear it on the
+    // New tasks default to a today due date â€” user can clear it on the
     // dialog if they want a date-less task.
     final now = DateTime.now();
     DateTime? selectedDueDate = DateTime(now.year, now.month, now.day);
@@ -321,6 +361,48 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
     intervalCtrl.dispose();
   }
 
+  // Open the HSV colour picker. Returns the picked colour as ARGB int,
+  // or null if cancelled.
+  Future<int?> _pickHabitColor(BuildContext ctx, Color current) async {
+    var picked = current;
+    final saved = await showDialog<bool>(
+      context: ctx,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: kCream,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Pick a habit colour',
+            style: TextStyle(color: kBrown, fontWeight: FontWeight.bold)),
+        contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        content: SingleChildScrollView(
+          child: ColorPicker(
+            pickerColor: picked,
+            onColorChanged: (c) => picked = c,
+            enableAlpha: false,
+            labelTypes: const [],
+            pickerAreaHeightPercent: 0.7,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child:
+                Text('Cancel', style: TextStyle(color: kLeaflitGreen)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: kSunsetPetal,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: Text('Use'),
+          ),
+        ],
+      ),
+    );
+    if (saved != true) return null;
+    return picked.toARGB32();
+  }
+
   // Friendly label for the due-date button.
   String _humanDueDate(DateTime d) {
     final now = DateTime.now();
@@ -358,7 +440,7 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
       backgroundColor: kCream,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Text(isEdit ? 'Edit Item' : 'New Item',
-          style: const TextStyle(color: kBrown, fontWeight: FontWeight.bold)),
+          style: TextStyle(color: kBrown, fontWeight: FontWeight.bold)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -379,29 +461,29 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             TextField(
               controller: titleCtrl,
               autofocus: true,
-              style: const TextStyle(color: kBrown),
+              style: TextStyle(color: kBrown),
               decoration: InputDecoration(
                 labelText: isHabit ? 'Habit name' : 'Task name',
-                labelStyle: const TextStyle(color: kSunsetPetal),
-                focusedBorder: const UnderlineInputBorder(
+                labelStyle: TextStyle(color: kSunsetPetal),
+                focusedBorder: UnderlineInputBorder(
                     borderSide: BorderSide(color: kSunsetPetal)),
                 enabledBorder: UnderlineInputBorder(
                     borderSide: BorderSide(color: kBrown.withValues(alpha: 0.3))),
               ),
             ),
             if (!isHabit) ...[
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               Row(children: [
-                const Text('Due',
+                Text('Due',
                     style: TextStyle(color: kBrown, fontSize: 14)),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
                 Expanded(
                   child: OutlinedButton.icon(
-                    icon: const Icon(Icons.calendar_today,
+                    icon: Icon(Icons.calendar_today,
                         size: 14, color: kSunsetPetal),
                     label: Text(
                       selectedDueDate == null
@@ -427,8 +509,8 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
                       final picked = await showDatePicker(
                         context: ctx,
                         initialDate: selectedDueDate ?? now,
-                        firstDate: now.subtract(const Duration(days: 365)),
-                        lastDate: now.add(const Duration(days: 365 * 3)),
+                        firstDate: now.subtract(Duration(days: 365)),
+                        lastDate: now.add(Duration(days: 365 * 3)),
                       );
                       if (picked != null) onDueDateChanged(picked);
                     },
@@ -436,7 +518,7 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
                 ),
                 if (selectedDueDate != null)
                   IconButton(
-                    icon: const Icon(Icons.clear,
+                    icon: Icon(Icons.clear,
                         size: 18, color: kSunsetPetal),
                     tooltip: 'Clear due date',
                     onPressed: () => onDueDateChanged(null),
@@ -444,46 +526,50 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
               ]),
             ],
             if (isHabit) ...[
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const Text('Colour',
+                  Text('Colour',
                       style: TextStyle(color: kBrown, fontSize: 14)),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: kHabitColorPalette.map((c) {
-                        final selected = selectedColor == c;
-                        return GestureDetector(
-                          onTap: () => onColorChanged(c),
-                          child: Container(
-                            width: 26,
-                            height: 26,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Color(c),
-                              border: Border.all(
-                                color: selected
-                                    ? kBrown
-                                    : Colors.transparent,
-                                width: 2,
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
+                  SizedBox(width: 12),
+                  // Current colour swatch + button to open the picker.
+                  GestureDetector(
+                    onTap: () async {
+                      final picked = await _pickHabitColor(
+                          ctx, Color(selectedColor));
+                      if (picked != null) onColorChanged(picked);
+                    },
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Color(selectedColor),
+                        border: Border.all(
+                            color: kBrown.withValues(alpha: 0.5),
+                            width: 1.5),
+                      ),
                     ),
+                  ),
+                  SizedBox(width: 8),
+                  TextButton.icon(
+                    onPressed: () async {
+                      final picked = await _pickHabitColor(
+                          ctx, Color(selectedColor));
+                      if (picked != null) onColorChanged(picked);
+                    },
+                    icon: Icon(Icons.colorize,
+                        size: 16, color: kSunsetPetal),
+                    label: Text('Pick',
+                        style: TextStyle(color: kSunsetPetal)),
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               Row(children: [
-                const Text('Repeat every',
+                Text('Repeat every',
                     style: TextStyle(color: kBrown, fontSize: 14)),
-                const SizedBox(width: 8),
+                SizedBox(width: 8),
                 SizedBox(
                   width: 52,
                   child: TextField(
@@ -491,34 +577,34 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: kBrown, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: kBrown, fontWeight: FontWeight.bold),
                     decoration: InputDecoration(
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                       focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: kSunsetPetal)),
+                          borderSide: BorderSide(color: kSunsetPetal)),
                       enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                           borderSide: BorderSide(color: kBrown.withValues(alpha: 0.3))),
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                const Text('day(s)', style: TextStyle(color: kBrown, fontSize: 14)),
+                SizedBox(width: 8),
+                Text('day(s)', style: TextStyle(color: kBrown, fontSize: 14)),
               ]),
-              const SizedBox(height: 4),
-              Text('1 = daily · 7 = weekly',
+              SizedBox(height: 4),
+              Text('1 = daily Â· 7 = weekly',
                   style: TextStyle(color: kBrown.withValues(alpha: 0.45), fontSize: 11)),
             ],
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             DropdownButtonFormField<int>(
               initialValue: selectedPriority,
               dropdownColor: kCream,
-              style: const TextStyle(color: kBrown),
+              style: TextStyle(color: kBrown),
               decoration: InputDecoration(
                 labelText: 'Priority',
-                labelStyle: const TextStyle(color: kSunsetPetal),
+                labelStyle: TextStyle(color: kSunsetPetal),
                 enabledBorder: UnderlineInputBorder(
                     borderSide: BorderSide(color: kBrown.withValues(alpha: 0.3))),
               ),
@@ -528,7 +614,7 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
                   value: i,
                   child: Row(children: [
                     Icon(Icons.flag, size: 16, color: kPriorityColors[i]),
-                    const SizedBox(width: 8),
+                    SizedBox(width: 8),
                     Text(kPriorityLabels[i]),
                   ]),
                 ),
@@ -541,7 +627,7 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx),
-          child: const Text('Cancel', style: TextStyle(color: kLeaflitGreen)),
+          child: Text('Cancel', style: TextStyle(color: kLeaflitGreen)),
         ),
         ElevatedButton(
           style: ElevatedButton.styleFrom(
@@ -556,7 +642,7 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
     );
   }
 
-  // ── Focus timer ──────────────────────────────────────────────
+  // â”€â”€ Focus timer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   void _openFocusTimer() {
     // Pool = active tasks (not done) + due habits.
@@ -578,45 +664,49 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
     ));
   }
 
-  // ── Build ─────────────────────────────────────────────────────
+
+  // â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: kSunsetPetal,
+        backgroundColor: kMorningTop,
         foregroundColor: Colors.white,
-        title: const Text('Todo & Habits',
+        title: Text('Todo & Habits',
             style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
+          // âš ï¸ DEV-only panel-tint picker. Strip with the rest of the
+          // dev tooling once a final hex is chosen.
           IconButton(
             tooltip: 'Focus timer',
-            icon: const Icon(Icons.timer_outlined),
+            icon: Icon(Icons.timer_outlined),
             onPressed: _openFocusTimer,
           ),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(48),
           child: Container(
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [kSunsetPetal, kGoldenPollen],
+                colors: [kMorningTop, kGoldenPollen],
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
               ),
             ),
             child: TabBar(
               controller: _tabController,
-              indicator: const BrowserTabIndicator(),
+              indicator: BrowserTabIndicator(),
               indicatorSize: TabBarIndicatorSize.tab,
               labelColor: kBrown,
               unselectedLabelColor: Colors.white,
-              labelStyle: const TextStyle(
+              labelStyle: TextStyle(
                   fontWeight: FontWeight.bold, fontFamily: 'Montserrat'),
-              unselectedLabelStyle: const TextStyle(
+              unselectedLabelStyle: TextStyle(
                   fontWeight: FontWeight.normal, fontFamily: 'Montserrat'),
               tabs: const [
+                Tab(text: 'Today'),
                 Tab(text: 'Todo'),
                 Tab(text: 'Habits'),
                 Tab(text: 'Stats'),
@@ -644,6 +734,17 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
             onDuplicateTodo: _duplicateTodo,
             onClearDone: _clearAllDone,
             onReorderChecklist: _reorderChecklist,
+            onFailItem: _failItem,
+            onReschedule: _rescheduleItem,
+          ),
+          TodoListTab(
+            todos: _todos,
+            onToggleDone: _toggleDone,
+            onEditTodo: _showEditDialog,
+            onDeleteTodo: _deleteTodo,
+            onDuplicateTodo: _duplicateTodo,
+            onFailItem: _failItem,
+            onReschedule: _rescheduleItem,
           ),
           HabitsTab(
             todos: _todos,
@@ -669,7 +770,7 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
         onPressed: _showAddDialog,
         backgroundColor: kGoldenPollen,
         foregroundColor: kBrown,
-        child: const Icon(Icons.add),
+        child: Icon(Icons.add),
       ),
     );
   }

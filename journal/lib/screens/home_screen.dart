@@ -160,9 +160,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Color(0xFFD94F3A),
+                      // Top half = flipped Todo gradient — burnt orange
+                      // at the top, transition crimson, deep purplish
+                      // red where it meets the night sky.
                       Color(0xFFE8753A),
-                      Color(0xFFF4A444),
+                      Color(0xFFC4453F),
+                      Color(0xFFA8324F),
                       Color(0xFF1A3F6F),
                       Color(0xFF0F2447),
                       Color(0xFF080E24),
