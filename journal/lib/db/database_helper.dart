@@ -80,20 +80,31 @@ class DatabaseHelper {
   static Future<List<TodoItem>> getAllTodos() async {
     final prefs = await _store;
 
-    // One-time wipe + reseed of Swathi's defaults.
-    // Bump the version key whenever the seed list changes meaningfully.
+    // First-run seed: only kicks in when this device has no todos
+    // stored. Once the flag is set we *never* touch the user's data —
+    // bumping the version key in future builds is a no-op for anyone
+    // already past the first launch. (To add a new default habit
+    // without wiping, follow the additive pattern used for the Protein
+    // metric: a separate flag that inserts the missing item if absent.)
     const seedKey = 'default_habits_seeded_v5';
-    if (!(prefs.getBool(seedKey) ?? false)) {
-      final seeded = _defaultHabits();
-      await prefs.setString(
-          'todos', jsonEncode(seeded.map((t) => t.toMap()).toList()));
-      // Also clear per-habit completion log so old habit IDs don't linger.
-      await prefs.remove('habit_completions');
+    final raw = prefs.getString('todos');
+    final flagSet = prefs.getBool(seedKey) ?? false;
+
+    if (!flagSet) {
+      final hasExisting =
+          raw != null && (jsonDecode(raw) as List).isNotEmpty;
+      if (!hasExisting) {
+        final seeded = _defaultHabits();
+        await prefs.setString(
+            'todos', jsonEncode(seeded.map((t) => t.toMap()).toList()));
+        await prefs.setBool(seedKey, true);
+        return seeded;
+      }
+      // Existing data on this device — mark the flag so we never try
+      // again, but leave the user's todos alone.
       await prefs.setBool(seedKey, true);
-      return seeded;
     }
 
-    final raw = prefs.getString('todos');
     if (raw == null) return [];
     final list = jsonDecode(raw) as List;
     return list
