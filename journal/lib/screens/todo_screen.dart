@@ -160,6 +160,11 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
     await _loadAll();
   }
 
+  Future<void> _resetHabitsToDefaults() async {
+    await DatabaseHelper.resetHabitsToDefaults();
+    await _loadAll();
+  }
+
   Future<void> _clearAllDone() async {
     await DatabaseHelper.clearDoneTodos();
     await _loadAll();
@@ -646,6 +651,7 @@ class _TodoScreenState extends State<TodoScreen> with TickerProviderStateMixin {
             completions: _habitCompletions,
             onEditTodo: _showEditDialog,
             onDeleteTodo: _deleteTodo,
+            onResetToDefaults: _resetHabitsToDefaults,
           ),
           StatsTab(
             todos: _todos,

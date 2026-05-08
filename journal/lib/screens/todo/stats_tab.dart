@@ -5,117 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../models/todo_item.dart';
 import '../../models/trackable_metric.dart';
-import '../../dev_seed.dart'; // ⚠️ DEV ONLY — remove with the dev panel below.
 import 'todo_theme.dart';
-
-// ⚠️ DEV ONLY — remove this widget (and dev_seed.dart) before shipping.
-class _DevPanel extends StatefulWidget {
-  final Future<void> Function() onReload;
-  const _DevPanel({required this.onReload});
-
-  @override
-  State<_DevPanel> createState() => _DevPanelState();
-}
-
-class _DevPanelState extends State<_DevPanel> {
-  bool _busy = false;
-
-  Future<void> _run(Future<void> Function() action, String label) async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    await action();
-    await widget.onReload();
-    if (!mounted) return;
-    setState(() => _busy = false);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      duration: const Duration(seconds: 2),
-      content: Text(label),
-      backgroundColor: kBrown,
-    ));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-      decoration: BoxDecoration(
-        color: kBrown.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: kBrown.withValues(alpha: 0.25), width: 1),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.science_outlined,
-              size: 16, color: kBrown.withValues(alpha: 0.7)),
-          const SizedBox(width: 6),
-          Text('DEV',
-              style: TextStyle(
-                  color: kBrown.withValues(alpha: 0.7),
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                _devButton(
-                  icon: Icons.auto_fix_high,
-                  label: 'Load fake data',
-                  onTap: () => _run(
-                      DevSeed.loadFakeData, 'Fake data loaded'),
-                ),
-                _devButton(
-                  icon: Icons.delete_outline,
-                  label: 'Wipe all',
-                  destructive: true,
-                  onTap: () => _run(DevSeed.wipeAll,
-                      'Wiped — restart the app to re-seed defaults'),
-                ),
-              ],
-            ),
-          ),
-          if (_busy)
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2, color: kBrown),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _devButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    bool destructive = false,
-  }) {
-    final color = destructive ? kSunsetPetal : kBrown;
-    return GestureDetector(
-      onTap: _busy ? null : onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: kFrostTint.withValues(alpha: 0.7),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withValues(alpha: 0.5)),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 13, color: color),
-          const SizedBox(width: 4),
-          Text(label,
-              style: TextStyle(
-                  color: color,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600)),
-        ]),
-      ),
-    );
-  }
-}
 
 // Internal: a series that actually has data on the chart.
 class _ChartedSeries {
@@ -319,11 +209,6 @@ class _StatsTabState extends State<StatsTab> {
     return ListView(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
         children: [
-          // ⚠️ DEV ONLY — remove this panel + the dev_seed import before release.
-          _DevPanel(onReload: widget.onReload),
-          const SizedBox(height: 14),
-          // ⚠️ END DEV PANEL
-
           // Range selector
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,

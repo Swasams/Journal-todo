@@ -14,6 +14,7 @@ class HabitsTab extends StatefulWidget {
   final Map<String, List<int>> completions;
   final Future<void> Function(TodoItem) onEditTodo;
   final Future<void> Function(int) onDeleteTodo;
+  final Future<void> Function() onResetToDefaults;
 
   const HabitsTab({
     super.key,
@@ -22,6 +23,7 @@ class HabitsTab extends StatefulWidget {
     required this.completions,
     required this.onEditTodo,
     required this.onDeleteTodo,
+    required this.onResetToDefaults,
   });
 
   @override
@@ -131,6 +133,66 @@ class _HabitsTabState extends State<HabitsTab> {
                     onTap: () => widget.onEditTodo(h),
                     onDelete: () => widget.onDeleteTodo(h.id!),
                   )),
+            const SizedBox(height: 12),
+            GestureDetector(
+              onTap: () async {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    backgroundColor: kCream,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                    title: const Text('Reset to default habits?',
+                        style: TextStyle(
+                            color: kBrown, fontWeight: FontWeight.bold)),
+                    content: const Text(
+                      'This will replace all your current habits with the default list and clear completion history.',
+                      style: TextStyle(color: kBrown),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('Cancel',
+                            style: TextStyle(color: kLeaflitGreen)),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kSunsetPetal,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text('Reset'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed == true) await widget.onResetToDefaults();
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                decoration: BoxDecoration(
+                  color: kSunsetPetal.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: kSunsetPetal.withValues(alpha: 0.35)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.refresh,
+                        size: 16, color: kSunsetPetal.withValues(alpha: 0.8)),
+                    const SizedBox(width: 8),
+                    Text('Reset to default habits',
+                        style: TextStyle(
+                            color: kSunsetPetal.withValues(alpha: 0.9),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+            ),
           ],
         ],
     );

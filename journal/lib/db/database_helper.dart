@@ -134,6 +134,16 @@ class DatabaseHelper {
     await prefs.setString('todos', jsonEncode(todos.map((t) => t.toMap()).toList()));
   }
 
+  static Future<void> resetHabitsToDefaults() async {
+    final prefs = await _store;
+    final todos = await getAllTodos();
+    final nonHabits = todos.where((t) => !t.isHabit).toList();
+    final defaults = _defaultHabits();
+    final combined = [...nonHabits, ...defaults];
+    await prefs.setString('todos', jsonEncode(combined.map((t) => t.toMap()).toList()));
+    await prefs.remove('habit_completions');
+  }
+
   static Future<void> clearDoneTodos() async {
     final prefs = await _store;
     final todos = await getAllTodos();
